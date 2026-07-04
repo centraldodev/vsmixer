@@ -1,0 +1,1455 @@
+using System;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.ComponentModel;
+using System.Diagnostics;
+using System.Globalization;
+using System.IO;
+using System.Linq;
+using System.Text;
+using System.Text.Json;
+using Avalonia.Threading;
+using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
+using Melanchall.DryWetMidi.Multimedia;
+using VSMixer.Models;
+using VSMixer.Services;
+
+namespace VSMixer.ViewModels;
+
+public partial class MainWindowViewModel : ViewModelBase
+{
+    private readonly string[] _sectionColors = ["#2f7dff", "#28b66f", "#db9d27", "#b45cff", "#ef5a77", "#18a8b8"];
+    private readonly IReadOnlyDictionary<string, string> _padFiles = new Dictionary<string, string>
+    {
+        ["C"] = "C_1.wav",
+        ["C#"] = "C_sharp_1.wav",
+        ["D"] = "D_1.wav",
+        ["D#"] = "D_sharp_1.wav",
+        ["E"] = "E_1.wav",
+        ["F"] = "F_1.wav",
+        ["F#"] = "F_sharp_1.wav",
+        ["G"] = "G_1.wav",
+        ["G#"] = "G_sharp_1.wav",
+        ["A"] = "A_1.wav",
+        ["A#"] = "A_sharp_1.wav",
+        ["B"] = "B_1.wav"
+    };
+    private readonly Dictionary<string, string> _guideVoiceFiles = new(StringComparer.OrdinalIgnoreCase);
+    private readonly IAudioEngine _audioEngine;
+    private readonly IMidiControlService _midiControlService;
+    private readonly DispatcherTimer _meterTimer;
+    private readonly Stopwatch _metronomeClock = new();
+    private double _durationSeconds;
+    private double _nextMetronomeBeatSeconds;
+    private int _metronomeBeatIndex;
+    private string? _lastGuideVoiceKey;
+    private bool _isRestoringProjectTab;
+
+    public MainWindowViewModel()
+        : this(new BassAudioEngine(), new DryWetMidiControlService())
+    {
+    }
+
+    public MainWindowViewModel(IAudioEngine audioEngine, IMidiControlService midiControlService)
+    {
+        _audioEngine = audioEngine;
+        _midiControlService = midiControlService;
+        _meterTimer = new DispatcherTimer
+        {
+            Interval = TimeSpan.FromMilliseconds(55)
+        };
+        _meterTimer.Tick += (_, _) => UpdateTransport();
+        _meterTimer.Start();
+
+        WaveformPeaks.Clear();
+        RefreshGuideVoiceFiles();
+
+        var initialTab = new ProjectTabViewModel(ProjectName, CurrentProjectPath, CreateProjectDocument())
+        {
+            IsActive = true
+        };
+        ProjectTabs.Add(initialTab);
+        _activeProjectTab = initialTab;
+    }
+
+    public ObservableCollection<ProjectTabViewModel> ProjectTabs { get; } = [];
+    public ObservableCollection<TrackChannelViewModel> Tracks { get; } = [];
+    public ObservableCollection<double> WaveformPeaks { get; } = [];
+    public ObservableCollection<SessionRegionViewModel> SessionRegions { get; } = [];
+    public ObservableCollection<DeviceOptionViewModel> AudioOutputDevices { get; } = [];
+    public ObservableCollection<DeviceOptionViewModel> MidiControllerDevices { get; } = [];
+    public ObservableCollection<string> MidiControlBanks { get; } = ["Transporte", "Tracks 1-8", "Tracks 9-16", "Tracks 17-24", "Master"];
+
+    public ObservableCollection<string> TimeMarkers { get; } =
+        ["0:00", "0:27", "0:55", "1:22", "1:50", "2:18", "2:45", "3:13", "3:41", "4:08", "4:36", "5:04"];
+
+    public ObservableCollection<string> TimeSignatures { get; } = ["4/4", "3/4"];
+    public ObservableCollection<string> GridOptions { get; } = ["1/2", "1/4", "1/8", "1/16"];
+    public ObservableCollection<string> PadNotes { get; } = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+    public ObservableCollection<string> SessionNameOptions { get; } = [];
+    public ObservableCollection<SessionCopyOptionViewModel> SessionCopyOptions { get; } = [];
+
+    [ObservableProperty]
+    private string _projectName = "Projeto 1";
+
+    [ObservableProperty]
+    private ProjectTabViewModel? _activeProjectTab;
+
+    [ObservableProperty]
+    private string? _currentProjectPath;
+
+    [ObservableProperty]
+    private bool _isPlaying;
+
+    [ObservableProperty]
+    private string _currentTime = "0:00";
+
+    [ObservableProperty]
+    private string _barClock = "1.1.01";
+
+    [ObservableProperty]
+    private int _detectedBpm = 133;
+
+    [ObservableProperty]
+    private string _detectedBpmText = "133";
+
+    [ObservableProperty]
+    private int _playbackBpm = 133;
+
+    [ObservableProperty]
+    private string _playbackBpmText = "133";
+
+    [ObservableProperty]
+    private string _selectedTimeSignature = "4/4";
+
+    [ObservableProperty]
+    private string _selectedGrid = "1/4";
+
+    [ObservableProperty]
+    private int _tempoOffset;
+
+    [ObservableProperty]
+    private int _pitchOffset;
+
+    [ObservableProperty]
+    private bool _metronomeEnabled;
+
+    [ObservableProperty]
+    private double _metronomeVolume = 0.82;
+
+    [ObservableProperty]
+    private double _metronomePan = -1;
+
+    [ObservableProperty]
+    private bool _guideVoiceEnabled;
+
+    [ObservableProperty]
+    private double _guideVoiceVolume = 0.85;
+
+    [ObservableProperty]
+    private double _guideVoicePan = -1;
+
+    [ObservableProperty]
+    private bool _padContinuousEnabled;
+
+    [ObservableProperty]
+    private string _selectedPadNote = "C";
+
+    [ObservableProperty]
+    private double _masterVolume = 0.96;
+
+    [ObservableProperty]
+    private double _playbackProgress;
+
+    [ObservableProperty]
+    private string _statusMessage = "Importe os arquivos multitrack para comecar.";
+
+    [ObservableProperty]
+    private bool _isAddSessionModalOpen;
+
+    [ObservableProperty]
+    private bool _isAudioSettingsModalOpen;
+
+    [ObservableProperty]
+    private DeviceOptionViewModel? _selectedAudioOutputDevice;
+
+    [ObservableProperty]
+    private bool _isMidiControllerEnabled;
+
+    [ObservableProperty]
+    private DeviceOptionViewModel? _selectedMidiController;
+
+    [ObservableProperty]
+    private string _selectedMidiControlBank = "Transporte";
+
+    [ObservableProperty]
+    private string _newSessionName = "Sessao";
+
+    [ObservableProperty]
+    private int _newSessionStartMeasure = 145;
+
+    [ObservableProperty]
+    private int _newSessionEndMeasure = 176;
+
+    [ObservableProperty]
+    private SessionCopyOptionViewModel? _selectedSessionCopySource;
+
+    public int TrackCount => Tracks.Count;
+    public string PlayPauseText => IsPlaying ? "Pause" : "Play";
+    public bool IsNotPlaying => !IsPlaying;
+    public bool HasSavedProject => !string.IsNullOrWhiteSpace(CurrentProjectPath);
+    private bool HasImportedAudio => _audioEngine.TrackCount > 0;
+
+    partial void OnProjectNameChanged(string value)
+    {
+        if (_isRestoringProjectTab || ActiveProjectTab is null)
+        {
+            return;
+        }
+
+        ActiveProjectTab.Name = value;
+    }
+
+    partial void OnActiveProjectTabChanged(ProjectTabViewModel? oldValue, ProjectTabViewModel? newValue)
+    {
+        if (oldValue is not null)
+        {
+            SaveStateToProjectTab(oldValue);
+            oldValue.IsActive = false;
+        }
+
+        if (newValue is null)
+        {
+            return;
+        }
+
+        newValue.IsActive = true;
+        LoadProjectDocument(newValue.Document, newValue.ProjectPath, $"Aba ativa: {newValue.Name}.", updateActiveTab: false);
+    }
+
+    partial void OnIsPlayingChanged(bool value)
+    {
+        OnPropertyChanged(nameof(PlayPauseText));
+        OnPropertyChanged(nameof(IsNotPlaying));
+    }
+
+    partial void OnCurrentProjectPathChanged(string? value)
+    {
+        if (!_isRestoringProjectTab && ActiveProjectTab is not null)
+        {
+            ActiveProjectTab.ProjectPath = value;
+        }
+
+        OnPropertyChanged(nameof(HasSavedProject));
+    }
+
+    partial void OnMasterVolumeChanged(double value)
+    {
+        _audioEngine.SetMasterVolume(value);
+    }
+
+    partial void OnSelectedTimeSignatureChanged(string value)
+    {
+        _ = value;
+        UpdateClockFields(_audioEngine.CurrentPositionSeconds);
+        if (IsPlaying && MetronomeEnabled)
+        {
+            StartMetronome(playFirstClick: true);
+        }
+    }
+
+    partial void OnSelectedGridChanged(string value)
+    {
+        if (!GridOptions.Contains(value))
+        {
+            SelectedGrid = "1/4";
+            return;
+        }
+
+        if (IsPlaying && MetronomeEnabled)
+        {
+            StartMetronome(playFirstClick: true);
+        }
+    }
+
+    partial void OnDetectedBpmChanged(int value)
+    {
+        DetectedBpm = Math.Clamp(value, 1, 300);
+        SyncBpmText(nameof(DetectedBpmText), DetectedBpmText, DetectedBpm);
+        ApplyPlaybackTempo();
+        UpdateClockFields(_audioEngine.CurrentPositionSeconds);
+    }
+
+    partial void OnPlaybackBpmChanged(int value)
+    {
+        PlaybackBpm = Math.Clamp(value, 1, 300);
+        SyncBpmText(nameof(PlaybackBpmText), PlaybackBpmText, PlaybackBpm);
+        ApplyPlaybackTempo();
+        RescheduleMetronome();
+    }
+
+    partial void OnDetectedBpmTextChanged(string value)
+    {
+        if (TryParseBpm(value, out var bpm))
+        {
+            DetectedBpm = bpm;
+        }
+    }
+
+    partial void OnPlaybackBpmTextChanged(string value)
+    {
+        if (TryParseBpm(value, out var bpm))
+        {
+            PlaybackBpm = bpm;
+        }
+    }
+
+    partial void OnMetronomeEnabledChanged(bool value)
+    {
+        if (value && IsPlaying)
+        {
+            StartMetronome(playFirstClick: true);
+            return;
+        }
+
+        StopMetronome();
+    }
+
+    partial void OnMetronomeVolumeChanged(double value)
+    {
+        _audioEngine.SetMetronomeState(value, MetronomePan);
+    }
+
+    partial void OnMetronomePanChanged(double value)
+    {
+        _audioEngine.SetMetronomeState(MetronomeVolume, value);
+    }
+
+    partial void OnGuideVoiceVolumeChanged(double value)
+    {
+        _audioEngine.SetGuideVoiceState(value, GuideVoicePan);
+    }
+
+    partial void OnGuideVoicePanChanged(double value)
+    {
+        _audioEngine.SetGuideVoiceState(GuideVoiceVolume, value);
+    }
+
+    partial void OnGuideVoiceEnabledChanged(bool value)
+    {
+        if (!value)
+        {
+            _audioEngine.StopGuideVoice();
+        }
+
+        StatusMessage = value ? "Voz guia ligada." : "Voz guia desligada.";
+    }
+
+    partial void OnPadContinuousEnabledChanged(bool value)
+    {
+        if (value)
+        {
+            ApplyPadState();
+            return;
+        }
+
+        _audioEngine.StopPad();
+        StatusMessage = "Pad desligado.";
+    }
+
+    partial void OnSelectedPadNoteChanged(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value) || !_padFiles.ContainsKey(value))
+        {
+            SelectedPadNote = "C";
+            return;
+        }
+
+        if (PadContinuousEnabled)
+        {
+            ApplyPadState();
+        }
+    }
+
+    partial void OnPitchOffsetChanged(int value)
+    {
+        PitchOffset = Math.Clamp(value, -12, 12);
+        _audioEngine.SetPitch(PitchOffset, GetPitchExemptTrackIndices());
+    }
+
+    partial void OnSelectedAudioOutputDeviceChanged(DeviceOptionViewModel? value)
+    {
+        if (value is null || value.IsPlaceholder)
+        {
+            return;
+        }
+
+        StatusMessage = _audioEngine.SetOutputDevice(value.Id)
+            ? $"Saida de audio selecionada: {value.Name}."
+            : _audioEngine.LastError ?? "Nao foi possivel selecionar a saida de audio.";
+    }
+
+    partial void OnIsMidiControllerEnabledChanged(bool value)
+    {
+        _ = value;
+        ApplyMidiControllerState();
+    }
+
+    partial void OnSelectedMidiControllerChanged(DeviceOptionViewModel? value)
+    {
+        _ = value;
+        if (IsMidiControllerEnabled)
+        {
+            ApplyMidiControllerState();
+        }
+    }
+
+    partial void OnSelectedMidiControlBankChanged(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value) || !MidiControlBanks.Contains(value))
+        {
+            SelectedMidiControlBank = "Transporte";
+            return;
+        }
+
+        if (IsMidiControllerEnabled && SelectedMidiController is not null && !SelectedMidiController.IsPlaceholder)
+        {
+            StatusMessage = $"MIDI controlando banco: {SelectedMidiControlBank}.";
+        }
+    }
+
+    partial void OnNewSessionStartMeasureChanged(int value)
+    {
+        _ = value;
+        ApplyCopiedSessionLength();
+    }
+
+    partial void OnSelectedSessionCopySourceChanged(SessionCopyOptionViewModel? value)
+    {
+        _ = value;
+        ApplyCopiedSessionLength();
+    }
+
+    public void ImportTracks(IReadOnlyList<string> filePaths)
+    {
+        if (filePaths.Count == 0)
+        {
+            return;
+        }
+
+        IsPlaying = false;
+        _audioEngine.Pause();
+        _audioEngine.StopGuideVoice();
+        StopMetronome();
+        _lastGuideVoiceKey = null;
+        var orderedFilePaths = OrderTrackFilePaths(filePaths);
+        var results = _audioEngine.LoadTracks(orderedFilePaths);
+        var loaded = results.Where(result => result.IsLoaded).ToArray();
+        var failed = results.Where(result => !result.IsLoaded).ToArray();
+
+        ClearTracks();
+        for (var i = 0; i < loaded.Length; i++)
+        {
+            var isPriorityTrack = GetTrackPriorityRank(loaded[i].Name) < 2;
+            var track = new TrackChannelViewModel(i + 1, loaded[i].Name, 0, loaded[i].FilePath)
+            {
+                Pan = isPriorityTrack ? -1 : 1
+            };
+            SubscribeTrack(track);
+            Tracks.Add(track);
+        }
+
+        OnPropertyChanged(nameof(TrackCount));
+        ApplyMixerStates();
+        UpdateWaveformPeaks();
+        _durationSeconds = Math.Max(0, _audioEngine.DurationSeconds);
+        CurrentTime = FormatTime(0);
+        PlaybackProgress = 0;
+
+        var detectedBpm = _audioEngine.DetectBpm();
+        if (detectedBpm.HasValue)
+        {
+            DetectedBpm = detectedBpm.Value;
+            PlaybackBpm = detectedBpm.Value;
+        }
+
+        UpdateClockFields(0);
+
+        StatusMessage = failed.Length == 0
+            ? $"{loaded.Length} tracks importadas. BPM detectado: {DetectedBpm}."
+            : $"{loaded.Length} tracks importadas. {failed.Length} falharam: {string.Join(", ", failed.Select(item => item.ErrorMessage).Distinct())}";
+        SaveActiveProjectTab();
+    }
+
+    public void SaveProject(string filePath)
+    {
+        ProjectName = Path.GetFileNameWithoutExtension(filePath);
+        var document = CreateProjectDocument();
+        var json = JsonSerializer.Serialize(document, new JsonSerializerOptions { WriteIndented = true });
+        File.WriteAllText(filePath, json);
+        CurrentProjectPath = filePath;
+        StatusMessage = $"Projeto salvo: {ProjectName}.";
+        SaveActiveProjectTab();
+    }
+
+    public void SaveCurrentProject()
+    {
+        if (string.IsNullOrWhiteSpace(CurrentProjectPath))
+        {
+            return;
+        }
+
+        SaveProject(CurrentProjectPath);
+    }
+
+    public void OpenProject(string filePath)
+    {
+        var json = File.ReadAllText(filePath);
+        var document = JsonSerializer.Deserialize<VsmixerProjectDocument>(json);
+        if (document is null)
+        {
+            StatusMessage = "Nao foi possivel abrir o projeto.";
+            return;
+        }
+
+        LoadProjectDocument(document, filePath, $"Projeto aberto: {document.ProjectName}.", updateActiveTab: true);
+    }
+
+    public void SeekToProgress(double progress)
+    {
+        if (!HasImportedAudio || _durationSeconds <= 0)
+        {
+            return;
+        }
+
+        var targetSeconds = Math.Clamp(progress, 0, 1) * _durationSeconds;
+        _audioEngine.Seek(targetSeconds);
+        _audioEngine.StopGuideVoice();
+        _lastGuideVoiceKey = null;
+        if (IsPlaying && MetronomeEnabled)
+        {
+            StartMetronome(playFirstClick: false);
+        }
+
+        UpdateClockFields(targetSeconds);
+        UpdateGuideVoice(targetSeconds);
+    }
+
+    [RelayCommand]
+    private void NewProjectTab()
+    {
+        SaveActiveProjectTab();
+        var projectNumber = ProjectTabs.Count + 1;
+        var document = CreateEmptyProjectDocument($"Projeto {projectNumber}");
+        var tab = new ProjectTabViewModel(document.ProjectName, null, document);
+        ProjectTabs.Add(tab);
+        ActiveProjectTab = tab;
+    }
+
+    [RelayCommand]
+    private void SelectProjectTab(ProjectTabViewModel tab)
+    {
+        if (tab == ActiveProjectTab)
+        {
+            return;
+        }
+
+        ActiveProjectTab = tab;
+    }
+
+    [RelayCommand]
+    private void CloseProjectTab(ProjectTabViewModel tab)
+    {
+        if (ProjectTabs.Count <= 1)
+        {
+            return;
+        }
+
+        var index = ProjectTabs.IndexOf(tab);
+        if (index < 0)
+        {
+            return;
+        }
+
+        var wasActive = tab == ActiveProjectTab;
+        ProjectTabs.Remove(tab);
+        if (wasActive)
+        {
+            ActiveProjectTab = ProjectTabs[Math.Clamp(index, 0, ProjectTabs.Count - 1)];
+        }
+    }
+
+    private void LoadProjectDocument(VsmixerProjectDocument document, string? projectPath, string statusMessage, bool updateActiveTab)
+    {
+        _isRestoringProjectTab = true;
+        IsPlaying = false;
+        _audioEngine.Pause();
+        _audioEngine.StopGuideVoice();
+        StopMetronome();
+        _lastGuideVoiceKey = null;
+        ProjectName = document.ProjectName;
+        DetectedBpm = document.DetectedBpm;
+        PlaybackBpm = document.PlaybackBpm;
+        PitchOffset = document.PitchOffset;
+        SelectedTimeSignature = document.SelectedTimeSignature;
+        SelectedGrid = document.SelectedGrid;
+        MasterVolume = document.MasterVolume;
+        MetronomeEnabled = document.MetronomeEnabled;
+        MetronomeVolume = document.MetronomeVolume;
+        MetronomePan = document.MetronomePan;
+        GuideVoiceEnabled = document.GuideVoiceEnabled;
+        GuideVoiceVolume = document.GuideVoiceVolume;
+        GuideVoicePan = document.GuideVoicePan;
+        SelectedPadNote = PadNotes.Contains(document.SelectedPadNote) ? document.SelectedPadNote : "C";
+        PadContinuousEnabled = document.PadContinuousEnabled;
+        SelectedMidiControlBank = MidiControlBanks.Contains(document.MidiControlBank)
+            ? document.MidiControlBank
+            : "Transporte";
+        RefreshDeviceLists();
+        SelectedAudioOutputDevice = AudioOutputDevices.FirstOrDefault(device => device.Id == document.AudioOutputDeviceId)
+            ?? AudioOutputDevices.FirstOrDefault();
+        SelectedMidiController = MidiControllerDevices.FirstOrDefault(device => string.Equals(device.Name, document.MidiControllerName, StringComparison.OrdinalIgnoreCase))
+            ?? MidiControllerDevices.FirstOrDefault(device => !device.IsPlaceholder);
+        IsMidiControllerEnabled = document.MidiControllerEnabled;
+
+        var paths = document.Tracks.Select(track => track.FilePath).Where(File.Exists).ToArray();
+        var results = _audioEngine.LoadTracks(paths);
+        var loaded = results.Where(result => result.IsLoaded).ToArray();
+
+        ClearTracks();
+        for (var i = 0; i < loaded.Length; i++)
+        {
+            var savedTrack = document.Tracks.FirstOrDefault(track => string.Equals(track.FilePath, loaded[i].FilePath, StringComparison.OrdinalIgnoreCase));
+            var track = new TrackChannelViewModel(i + 1, savedTrack?.Name ?? loaded[i].Name, 0, loaded[i].FilePath)
+            {
+                Volume = savedTrack?.Volume ?? 0.72,
+                Pan = savedTrack?.Pan ?? 0,
+                IsMuted = savedTrack?.IsMuted ?? false,
+                IsSolo = savedTrack?.IsSolo ?? false
+            };
+            SubscribeTrack(track);
+            Tracks.Add(track);
+        }
+
+        SessionRegions.Clear();
+        foreach (var session in document.Sessions)
+        {
+            SessionRegions.Add(new SessionRegionViewModel(session.Name, session.StartMeasure, session.EndMeasure, session.Color));
+        }
+
+        CurrentProjectPath = projectPath;
+        OnPropertyChanged(nameof(TrackCount));
+        ApplyMixerStates();
+        ApplyPlaybackTempo();
+        _audioEngine.SetPitch(PitchOffset, GetPitchExemptTrackIndices());
+        UpdateWaveformPeaks();
+        _durationSeconds = Math.Max(0, _audioEngine.DurationSeconds);
+        UpdateClockFields(0);
+        StatusMessage = statusMessage;
+        _isRestoringProjectTab = false;
+
+        if (updateActiveTab && ActiveProjectTab is not null)
+        {
+            SaveStateToProjectTab(ActiveProjectTab);
+        }
+    }
+
+    private void SaveActiveProjectTab()
+    {
+        if (ActiveProjectTab is not null)
+        {
+            SaveStateToProjectTab(ActiveProjectTab);
+        }
+    }
+
+    private void SaveStateToProjectTab(ProjectTabViewModel tab)
+    {
+        tab.Name = ProjectName;
+        tab.ProjectPath = CurrentProjectPath;
+        tab.Document = CreateProjectDocument();
+    }
+
+    private static VsmixerProjectDocument CreateEmptyProjectDocument(string name)
+    {
+        return new VsmixerProjectDocument
+        {
+            ProjectName = name
+        };
+    }
+
+    [RelayCommand]
+    private void TogglePlayback()
+    {
+        if (!HasImportedAudio)
+        {
+            StatusMessage = "Importe pelo menos uma track antes de tocar.";
+            return;
+        }
+
+        IsPlaying = !IsPlaying;
+        if (IsPlaying)
+        {
+            _audioEngine.Play();
+            StartMetronome(playFirstClick: MetronomeEnabled);
+            StatusMessage = "Tocando.";
+        }
+        else
+        {
+            _audioEngine.Pause();
+            _audioEngine.StopGuideVoice();
+            StopMetronome();
+            StatusMessage = "Pausado.";
+        }
+
+        UpdateClockFields(_audioEngine.CurrentPositionSeconds);
+    }
+
+    [RelayCommand]
+    private void Rewind()
+    {
+        IsPlaying = false;
+        _audioEngine.Pause();
+        _audioEngine.SeekToStart();
+        _audioEngine.StopGuideVoice();
+        StopMetronome();
+        _lastGuideVoiceKey = null;
+        UpdateClockFields(0);
+    }
+
+    [RelayCommand]
+    private void RemoveTrack(TrackChannelViewModel track)
+    {
+        var trackIndex = Tracks.IndexOf(track);
+        if (trackIndex >= 0)
+        {
+            _audioEngine.RemoveTrack(trackIndex);
+        }
+
+        track.PropertyChanged -= OnTrackPropertyChanged;
+        Tracks.Remove(track);
+        OnPropertyChanged(nameof(TrackCount));
+        ApplyMixerStates();
+        UpdateWaveformPeaks();
+    }
+
+    [RelayCommand]
+    private void OpenAddSessionModal()
+    {
+        RefreshGuideVoiceFiles();
+        RefreshSessionCopyOptions();
+
+        if (SessionNameOptions.Count == 0)
+        {
+            SessionNameOptions.Add($"Sessao {SessionRegions.Count + 1}");
+        }
+
+        NewSessionName = SessionNameOptions.First();
+        NewSessionStartMeasure = SessionRegions.Count == 0 ? 1 : SessionRegions.Max(session => session.EndMeasure) + 1;
+        NewSessionEndMeasure = NewSessionStartMeasure + 15;
+        SelectedSessionCopySource = SessionCopyOptions.FirstOrDefault();
+        IsAddSessionModalOpen = true;
+    }
+
+    [RelayCommand]
+    private void CloseAddSessionModal()
+    {
+        IsAddSessionModalOpen = false;
+    }
+
+    [RelayCommand]
+    private void OpenAudioSettingsModal()
+    {
+        RefreshDeviceLists();
+        IsAudioSettingsModalOpen = true;
+    }
+
+    [RelayCommand]
+    private void CloseAudioSettingsModal()
+    {
+        IsAudioSettingsModalOpen = false;
+    }
+
+    [RelayCommand]
+    private void AddSession()
+    {
+        var name = string.IsNullOrWhiteSpace(NewSessionName) ? $"Sessao {SessionRegions.Count + 1}" : NewSessionName.Trim();
+        var start = Math.Max(1, Math.Min(NewSessionStartMeasure, NewSessionEndMeasure));
+        var end = Math.Max(start, Math.Max(NewSessionStartMeasure, NewSessionEndMeasure));
+        var color = _sectionColors[SessionRegions.Count % _sectionColors.Length];
+
+        SessionRegions.Add(new SessionRegionViewModel(name, start, end, color));
+        IsAddSessionModalOpen = false;
+        SaveActiveProjectTab();
+    }
+
+    [RelayCommand]
+    private void ChangeTempo(string amount)
+    {
+        if (!int.TryParse(amount, NumberStyles.Integer, CultureInfo.InvariantCulture, out var step))
+        {
+            return;
+        }
+
+        PlaybackBpm = Math.Clamp(PlaybackBpm + step, 1, 300);
+    }
+
+    [RelayCommand]
+    private void ChangePitch(string amount)
+    {
+        if (!int.TryParse(amount, NumberStyles.Integer, CultureInfo.InvariantCulture, out var step))
+        {
+            return;
+        }
+
+        PitchOffset = Math.Clamp(PitchOffset + step, -12, 12);
+        StatusMessage = PitchOffset == 0
+            ? "Pitch original."
+            : $"Pitch alterado: {PitchOffset:+#;-#;0} semitons.";
+    }
+
+    private void SubscribeTrack(TrackChannelViewModel track)
+    {
+        track.PropertyChanged += OnTrackPropertyChanged;
+    }
+
+    private void ClearTracks()
+    {
+        foreach (var track in Tracks)
+        {
+            track.PropertyChanged -= OnTrackPropertyChanged;
+        }
+
+        Tracks.Clear();
+    }
+
+    private void OnTrackPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName is nameof(TrackChannelViewModel.Volume)
+            or nameof(TrackChannelViewModel.Pan)
+            or nameof(TrackChannelViewModel.IsMuted)
+            or nameof(TrackChannelViewModel.IsSolo))
+        {
+            ApplyMixerStates();
+        }
+    }
+
+    private void ApplyMixerStates()
+    {
+        var anySolo = Tracks.Any(track => track.IsSolo);
+
+        for (var i = 0; i < Tracks.Count; i++)
+        {
+            var track = Tracks[i];
+            var effectiveMuted = track.IsMuted || (anySolo && !track.IsSolo);
+            _audioEngine.SetTrackState(i, track.Volume, track.Pan, effectiveMuted);
+        }
+    }
+
+    private void UpdateTransport()
+    {
+        var position = HasImportedAudio ? _audioEngine.CurrentPositionSeconds : 0;
+        UpdateClockFields(position);
+        UpdateTrackMeters();
+        UpdateMetronome();
+        UpdateGuideVoice(position);
+
+        if (IsPlaying && _durationSeconds > 0 && position >= _durationSeconds - 0.05)
+        {
+            IsPlaying = false;
+            _audioEngine.StopGuideVoice();
+            StopMetronome();
+            _lastGuideVoiceKey = null;
+            StatusMessage = "Fim da reproducao.";
+        }
+    }
+
+    private void UpdateTrackMeters()
+    {
+        var anySolo = Tracks.Any(track => track.IsSolo);
+
+        for (var i = 0; i < Tracks.Count; i++)
+        {
+            var track = Tracks[i];
+            var effectiveMuted = track.IsMuted || (anySolo && !track.IsSolo);
+            var target = IsPlaying && !effectiveMuted
+                ? _audioEngine.GetTrackLevel(i) * track.Volume
+                : 0;
+
+            track.Level = target > track.Level
+                ? target
+                : track.Level * 0.72;
+        }
+    }
+
+    private void UpdateWaveformPeaks()
+    {
+        WaveformPeaks.Clear();
+
+        foreach (var peak in _audioEngine.GetSummedWaveform(360))
+        {
+            WaveformPeaks.Add(peak);
+        }
+    }
+
+    private void ApplyPlaybackTempo()
+    {
+        var ratio = PlaybackBpm / (double)Math.Max(1, DetectedBpm);
+        _audioEngine.SetTempo(ratio);
+    }
+
+    private void ApplyPadState()
+    {
+        if (!_padFiles.TryGetValue(SelectedPadNote, out var fileName))
+        {
+            StatusMessage = "Nota do pad invalida.";
+            return;
+        }
+
+        var padPath = ResolveAssetPath("Assets", "Pads-Continuos", fileName);
+        if (!_audioEngine.PlayPad(padPath))
+        {
+            StatusMessage = _audioEngine.LastError ?? $"Nao foi possivel tocar o pad {SelectedPadNote}.";
+            return;
+        }
+
+        StatusMessage = $"Pad ligado: {SelectedPadNote}.";
+    }
+
+    private void UpdateGuideVoice(double positionSeconds)
+    {
+        if (!IsPlaying || !GuideVoiceEnabled || SessionRegions.Count == 0)
+        {
+            return;
+        }
+
+        var measure = GetMeasureAtPosition(positionSeconds);
+        var session = SessionRegions
+            .OrderBy(region => region.StartMeasure)
+            .FirstOrDefault(region => measure >= region.StartMeasure && measure <= region.EndMeasure);
+        if (session is null)
+        {
+            return;
+        }
+
+        var guideKey = $"{session.StartMeasure}:{NormalizeGuideKey(session.Name)}";
+        if (string.Equals(_lastGuideVoiceKey, guideKey, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        _lastGuideVoiceKey = guideKey;
+        if (!TryGetGuideVoicePath(session.Name, out var guidePath))
+        {
+            return;
+        }
+
+        if (!_audioEngine.PlayGuideVoice(guidePath))
+        {
+            StatusMessage = _audioEngine.LastError ?? $"Nao foi possivel tocar a voz guia: {session.Name}.";
+        }
+    }
+
+    private bool TryGetGuideVoicePath(string sessionName, out string guidePath)
+    {
+        if (_guideVoiceFiles.Count == 0)
+        {
+            RefreshGuideVoiceFiles();
+        }
+
+        return _guideVoiceFiles.TryGetValue(NormalizeGuideKey(sessionName), out guidePath!);
+    }
+
+    private void RefreshGuideVoiceFiles()
+    {
+        _guideVoiceFiles.Clear();
+        SessionNameOptions.Clear();
+        var guideDirectory = ResolveAssetDirectory("Assets", "Voz-Guia");
+        if (!Directory.Exists(guideDirectory))
+        {
+            return;
+        }
+
+        var names = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var filePath in Directory.EnumerateFiles(guideDirectory, "*.mp3"))
+        {
+            var stem = Path.GetFileNameWithoutExtension(filePath);
+            AddGuideVoiceKey(stem, filePath);
+            AddGuideVoiceKey(stem.Replace('_', '-'), filePath);
+            AddGuideVoiceKey(stem.Replace('-', '_'), filePath);
+            names.Add(HumanizeGuideVoiceName(stem));
+        }
+
+        foreach (var name in names)
+        {
+            SessionNameOptions.Add(name);
+        }
+    }
+
+    private void AddGuideVoiceKey(string key, string filePath)
+    {
+        var normalized = NormalizeGuideKey(key);
+        if (!string.IsNullOrWhiteSpace(normalized))
+        {
+            _guideVoiceFiles[normalized] = filePath;
+        }
+    }
+
+    private void RefreshSessionCopyOptions()
+    {
+        SessionCopyOptions.Clear();
+        SessionCopyOptions.Add(new SessionCopyOptionViewModel("Nao copiar", 0, isNone: true));
+
+        foreach (var session in SessionRegions.OrderBy(session => session.StartMeasure))
+        {
+            var length = Math.Max(1, session.EndMeasure - session.StartMeasure + 1);
+            SessionCopyOptions.Add(new SessionCopyOptionViewModel(session.Name, length));
+        }
+    }
+
+    private void ApplyCopiedSessionLength()
+    {
+        if (SelectedSessionCopySource is null || SelectedSessionCopySource.IsNone)
+        {
+            return;
+        }
+
+        var start = Math.Max(1, NewSessionStartMeasure);
+        NewSessionEndMeasure = start + SelectedSessionCopySource.LengthMeasures - 1;
+    }
+
+    private static IReadOnlyList<string> OrderTrackFilePaths(IReadOnlyList<string> filePaths)
+    {
+        return filePaths
+            .OrderBy(path => GetTrackPriorityRank(Path.GetFileNameWithoutExtension(path)))
+            .ThenBy(path => Path.GetFileNameWithoutExtension(path), StringComparer.InvariantCultureIgnoreCase)
+            .ToArray();
+    }
+
+    private static int GetTrackPriorityRank(string trackName)
+    {
+        var name = trackName.ToLowerInvariant();
+        if (name.Contains("click", StringComparison.Ordinal) || name.Contains("clique", StringComparison.Ordinal))
+        {
+            return 0;
+        }
+
+        if (name.Contains("guia", StringComparison.Ordinal) || name.Contains("guide", StringComparison.Ordinal))
+        {
+            return 1;
+        }
+
+        return 2;
+    }
+
+    private HashSet<int> GetPitchExemptTrackIndices()
+    {
+        var exemptIndices = new HashSet<int>();
+        for (var i = 0; i < Tracks.Count; i++)
+        {
+            if (IsPitchExemptTrack(Tracks[i].Name))
+            {
+                exemptIndices.Add(i);
+            }
+        }
+
+        return exemptIndices;
+    }
+
+    private static bool IsPitchExemptTrack(string trackName)
+    {
+        if (GetTrackPriorityRank(trackName) < 2)
+        {
+            return true;
+        }
+
+        var name = trackName.ToLowerInvariant();
+        return name.Contains("bateria", StringComparison.Ordinal)
+            || name.Contains("drum", StringComparison.Ordinal)
+            || name.Contains("drums", StringComparison.Ordinal)
+            || name.Contains("drummer", StringComparison.Ordinal)
+            || name.Contains("percussao", StringComparison.Ordinal)
+            || name.Contains("percussão", StringComparison.Ordinal);
+    }
+
+    private static bool TryParseBpm(string value, out int bpm)
+    {
+        bpm = 0;
+        if (!int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed))
+        {
+            return false;
+        }
+
+        bpm = Math.Clamp(parsed, 1, 300);
+        return true;
+    }
+
+    private void SyncBpmText(string propertyName, string currentValue, int bpm)
+    {
+        var nextValue = bpm.ToString(CultureInfo.InvariantCulture);
+        if (string.Equals(currentValue, nextValue, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        if (propertyName == nameof(DetectedBpmText))
+        {
+            DetectedBpmText = nextValue;
+            return;
+        }
+
+        PlaybackBpmText = nextValue;
+    }
+
+    private static string ResolveAssetPath(params string[] parts)
+    {
+        var outputParts = new string[parts.Length + 1];
+        outputParts[0] = AppContext.BaseDirectory;
+        parts.CopyTo(outputParts, 1);
+        var outputPath = Path.Combine(outputParts);
+        if (File.Exists(outputPath))
+        {
+            return outputPath;
+        }
+
+        var directory = new DirectoryInfo(Directory.GetCurrentDirectory());
+        while (directory is not null)
+        {
+            var candidateParts = new string[parts.Length + 1];
+            candidateParts[0] = directory.FullName;
+            parts.CopyTo(candidateParts, 1);
+            var candidate = Path.Combine(candidateParts);
+            if (File.Exists(candidate))
+            {
+                return candidate;
+            }
+
+            directory = directory.Parent;
+        }
+
+        return outputPath;
+    }
+
+    private static string ResolveAssetDirectory(params string[] parts)
+    {
+        var outputParts = new string[parts.Length + 1];
+        outputParts[0] = AppContext.BaseDirectory;
+        parts.CopyTo(outputParts, 1);
+        var outputPath = Path.Combine(outputParts);
+        if (Directory.Exists(outputPath))
+        {
+            return outputPath;
+        }
+
+        var directory = new DirectoryInfo(Directory.GetCurrentDirectory());
+        while (directory is not null)
+        {
+            var candidateParts = new string[parts.Length + 1];
+            candidateParts[0] = directory.FullName;
+            parts.CopyTo(candidateParts, 1);
+            var candidate = Path.Combine(candidateParts);
+            if (Directory.Exists(candidate))
+            {
+                return candidate;
+            }
+
+            directory = directory.Parent;
+        }
+
+        return outputPath;
+    }
+
+    private static string NormalizeGuideKey(string value)
+    {
+        var normalized = value.Normalize(NormalizationForm.FormD);
+        var builder = new StringBuilder(normalized.Length);
+        var previousWasSeparator = false;
+
+        foreach (var character in normalized)
+        {
+            if (CharUnicodeInfo.GetUnicodeCategory(character) == UnicodeCategory.NonSpacingMark)
+            {
+                continue;
+            }
+
+            if (char.IsLetterOrDigit(character))
+            {
+                builder.Append(char.ToLowerInvariant(character));
+                previousWasSeparator = false;
+                continue;
+            }
+
+            if ((char.IsWhiteSpace(character) || character is '-' or '_') && !previousWasSeparator)
+            {
+                builder.Append('-');
+                previousWasSeparator = true;
+            }
+        }
+
+        return builder.ToString().Trim('-');
+    }
+
+    private static string HumanizeGuideVoiceName(string value)
+    {
+        var normalized = value.Replace('_', ' ').Replace('-', ' ').Trim();
+        if (string.IsNullOrWhiteSpace(normalized))
+        {
+            return value;
+        }
+
+        var words = normalized
+            .Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(word => word.Length == 1
+                ? word.ToUpperInvariant()
+                : char.ToUpperInvariant(word[0]) + word[1..].ToLowerInvariant());
+
+        return string.Join(' ', words);
+    }
+
+    private void StartMetronome(bool playFirstClick)
+    {
+        _metronomeBeatIndex = 0;
+        _metronomeClock.Restart();
+
+        if (playFirstClick)
+        {
+            _audioEngine.PlayMetronomeClick(isAccent: true);
+            _metronomeBeatIndex = 1;
+            _nextMetronomeBeatSeconds = GetBeatIntervalSeconds();
+            return;
+        }
+
+        _nextMetronomeBeatSeconds = 0;
+    }
+
+    private void StopMetronome()
+    {
+        _metronomeClock.Reset();
+        _nextMetronomeBeatSeconds = 0;
+        _metronomeBeatIndex = 0;
+    }
+
+    private void RescheduleMetronome()
+    {
+        if (!IsPlaying || !MetronomeEnabled || !_metronomeClock.IsRunning)
+        {
+            return;
+        }
+
+        _nextMetronomeBeatSeconds = _metronomeClock.Elapsed.TotalSeconds + GetBeatIntervalSeconds();
+    }
+
+    private void UpdateMetronome()
+    {
+        if (!IsPlaying || !MetronomeEnabled)
+        {
+            return;
+        }
+
+        if (!_metronomeClock.IsRunning)
+        {
+            StartMetronome(playFirstClick: true);
+            return;
+        }
+
+        var interval = GetBeatIntervalSeconds();
+        var elapsed = _metronomeClock.Elapsed.TotalSeconds;
+        var guard = 0;
+        while (elapsed + 0.015 >= _nextMetronomeBeatSeconds && guard < 3)
+        {
+            _audioEngine.PlayMetronomeClick(IsAccentBeat(_metronomeBeatIndex));
+            _metronomeBeatIndex++;
+            _nextMetronomeBeatSeconds += interval;
+            guard++;
+        }
+    }
+
+    private bool IsAccentBeat(int beatIndex)
+    {
+        var beatPosition = beatIndex * GetGridBeatLength();
+        var measureRemainder = beatPosition % GetBeatsPerMeasure();
+        return Math.Abs(measureRemainder) < 0.0001 || Math.Abs(measureRemainder - GetBeatsPerMeasure()) < 0.0001;
+    }
+
+    private int GetMeasureAtPosition(double positionSeconds)
+    {
+        var bpm = Math.Max(1, DetectedBpm);
+        var totalBeats = Math.Max(0, positionSeconds) * bpm / 60d;
+        return (int)Math.Floor(totalBeats / GetBeatsPerMeasure()) + 1;
+    }
+
+    private double GetBeatIntervalSeconds()
+    {
+        return 60d / Math.Clamp(PlaybackBpm, 1, 300) * GetGridBeatLength();
+    }
+
+    private double GetGridBeatLength()
+    {
+        var denominator = SelectedGrid switch
+        {
+            "1/2" => 2,
+            "1/8" => 8,
+            "1/16" => 16,
+            _ => 4
+        };
+
+        return 4d / denominator;
+    }
+
+    private int GetBeatsPerMeasure()
+    {
+        return SelectedTimeSignature == "3/4" ? 3 : 4;
+    }
+
+    private VsmixerProjectDocument CreateProjectDocument()
+    {
+        return new VsmixerProjectDocument
+        {
+            ProjectName = ProjectName,
+            DetectedBpm = DetectedBpm,
+            PlaybackBpm = PlaybackBpm,
+            PitchOffset = PitchOffset,
+            SelectedTimeSignature = SelectedTimeSignature,
+            SelectedGrid = SelectedGrid,
+            MasterVolume = MasterVolume,
+            MetronomeEnabled = MetronomeEnabled,
+            MetronomeVolume = MetronomeVolume,
+            MetronomePan = MetronomePan,
+            GuideVoiceEnabled = GuideVoiceEnabled,
+            GuideVoiceVolume = GuideVoiceVolume,
+            GuideVoicePan = GuideVoicePan,
+            PadContinuousEnabled = PadContinuousEnabled,
+            SelectedPadNote = SelectedPadNote,
+            AudioOutputDeviceId = SelectedAudioOutputDevice?.Id ?? -1,
+            AudioOutputDeviceName = SelectedAudioOutputDevice?.Name,
+            MidiControllerEnabled = IsMidiControllerEnabled,
+            MidiControllerName = SelectedMidiController?.IsPlaceholder == false ? SelectedMidiController.Name : null,
+            MidiControlBank = SelectedMidiControlBank,
+            Tracks = Tracks
+                .Where(track => !string.IsNullOrWhiteSpace(track.FilePath))
+                .Select(track => new ProjectTrackDocument
+                {
+                    Name = track.Name,
+                    FilePath = track.FilePath!,
+                    Volume = track.Volume,
+                    Pan = track.Pan,
+                    IsMuted = track.IsMuted,
+                    IsSolo = track.IsSolo
+                })
+                .ToList(),
+            Sessions = SessionRegions
+                .Select(session => new ProjectSessionDocument
+                {
+                    Name = session.Name,
+                    StartMeasure = session.StartMeasure,
+                    EndMeasure = session.EndMeasure,
+                    Color = session.Color
+                })
+                .ToList()
+        };
+    }
+
+    private void RefreshDeviceLists()
+    {
+        var currentAudioDeviceId = SelectedAudioOutputDevice?.Id ?? -1;
+        var currentMidiDeviceName = SelectedMidiController?.Name;
+
+        AudioOutputDevices.Clear();
+        MidiControllerDevices.Clear();
+
+        foreach (var device in _audioEngine.GetOutputDevices())
+        {
+            var detail = device.Id == -1
+                ? "Saida"
+                : device.IsDefault
+                    ? "Saida padrao"
+                    : "Saida";
+            AudioOutputDevices.Add(new DeviceOptionViewModel(device.Name, detail, device.Id, !device.IsEnabled));
+        }
+
+        try
+        {
+            foreach (var device in InputDevice.GetAll())
+            {
+                using (device)
+                {
+                    MidiControllerDevices.Add(new DeviceOptionViewModel(device.Name, "Controlador MIDI"));
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            MidiControllerDevices.Add(new DeviceOptionViewModel($"Erro ao listar MIDI: {ex.Message}", string.Empty, 0, true));
+        }
+
+        if (AudioOutputDevices.Count == 0)
+        {
+            AudioOutputDevices.Add(new DeviceOptionViewModel("Nenhuma saida de audio encontrada", string.Empty, -999, true));
+        }
+
+        if (MidiControllerDevices.Count == 0)
+        {
+            MidiControllerDevices.Add(new DeviceOptionViewModel("Nenhum controlador MIDI encontrado", string.Empty, 0, true));
+        }
+
+        SelectedAudioOutputDevice = AudioOutputDevices.FirstOrDefault(device => device.Id == currentAudioDeviceId)
+            ?? AudioOutputDevices.FirstOrDefault(device => !device.IsPlaceholder);
+        SelectedMidiController = MidiControllerDevices.FirstOrDefault(device => string.Equals(device.Name, currentMidiDeviceName, StringComparison.OrdinalIgnoreCase))
+            ?? MidiControllerDevices.FirstOrDefault(device => !device.IsPlaceholder);
+    }
+
+    private void ApplyMidiControllerState()
+    {
+        if (!IsMidiControllerEnabled)
+        {
+            _midiControlService.StopListening();
+            StatusMessage = "Controlador MIDI desabilitado.";
+            return;
+        }
+
+        if (SelectedMidiController is null || SelectedMidiController.IsPlaceholder)
+        {
+            _midiControlService.StopListening();
+            StatusMessage = "Nenhum controlador MIDI disponivel.";
+            return;
+        }
+
+        try
+        {
+            _midiControlService.StartListening(SelectedMidiController.Name);
+            StatusMessage = $"MIDI habilitado: {SelectedMidiController.Name} controlando {SelectedMidiControlBank}.";
+        }
+        catch (Exception ex)
+        {
+            _midiControlService.StopListening();
+            StatusMessage = $"Nao foi possivel habilitar MIDI: {ex.Message}";
+        }
+    }
+
+    private void UpdateClockFields(double positionSeconds)
+    {
+        CurrentTime = FormatTime(positionSeconds);
+        PlaybackProgress = _durationSeconds <= 0 ? 0 : Math.Clamp(positionSeconds / _durationSeconds, 0, 1);
+        BarClock = FormatBarClock(positionSeconds);
+    }
+
+    private string FormatBarClock(double positionSeconds)
+    {
+        var bpm = Math.Max(1, DetectedBpm);
+        var beatsPerMeasure = GetBeatsPerMeasure();
+        var totalBeats = positionSeconds * bpm / 60d;
+        var wholeBeat = Math.Max(0, (int)Math.Floor(totalBeats));
+        var measure = wholeBeat / beatsPerMeasure + 1;
+        var beat = wholeBeat % beatsPerMeasure + 1;
+        var tick = (int)Math.Floor((totalBeats - wholeBeat) * 100) + 1;
+        return $"{measure}.{beat}.{tick:00}";
+    }
+
+    private static string FormatTime(double seconds)
+    {
+        var safeSeconds = Math.Max(0, seconds);
+        var minutes = (int)(safeSeconds / 60);
+        var remainingSeconds = (int)(safeSeconds % 60);
+        return $"{minutes}:{remainingSeconds:00}";
+    }
+}
