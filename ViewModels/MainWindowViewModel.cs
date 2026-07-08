@@ -46,6 +46,7 @@ public partial class MainWindowViewModel : ViewModelBase
     private readonly Dictionary<string, string> _guideVoiceFiles = new(StringComparer.OrdinalIgnoreCase);
     private readonly IAudioEngine _audioEngine;
     private readonly IMidiControlService _midiControlService;
+    private readonly Process _currentProcess = Process.GetCurrentProcess();
     private SessionRegionViewModel? _editingSession;
     private SessionRegionViewModel? _queuedSession;
     private SessionRegionViewModel? _activePlaybackSession;
@@ -59,6 +60,9 @@ public partial class MainWindowViewModel : ViewModelBase
     private string? _lastGuideVoiceKey;
     private bool _isRestoringProjectTab;
     private MidiMapTarget? _pendingMidiMapTarget;
+    private DateTime _lastPerformanceSampleTime = DateTime.UtcNow;
+    private TimeSpan _lastPerformanceSampleCpuTime;
+    private DateTime _nextPerformanceSampleTime = DateTime.MinValue;
 
     public MainWindowViewModel()
         : this(new BassAudioEngine(), new DryWetMidiControlService())
@@ -189,6 +193,12 @@ public partial class MainWindowViewModel : ViewModelBase
 
     [ObservableProperty]
     private string _statusMessage = "Importe os arquivos multitrack para comecar.";
+
+    [ObservableProperty]
+    private string _cpuUsageText = "CPU 0%";
+
+    [ObservableProperty]
+    private string _memoryUsageText = "RAM 0 MB";
 
     [ObservableProperty]
     private bool _isAddSessionModalOpen;
@@ -1283,6 +1293,7 @@ public partial class MainWindowViewModel : ViewModelBase
         UpdateClockFields(position);
         UpdateTrackMeters();
         UpdateGuideVoice(position);
+        UpdatePerformanceUsage();
 
         if (IsPlaying && _durationSeconds > 0 && position >= _durationSeconds - 0.05)
         {
@@ -1294,6 +1305,30 @@ public partial class MainWindowViewModel : ViewModelBase
             _activePlaybackSession = null;
             StatusMessage = "Fim da reproducao.";
         }
+    }
+
+    private void UpdatePerformanceUsage()
+    {
+        var now = DateTime.UtcNow;
+        if (now < _nextPerformanceSampleTime)
+        {
+            return;
+        }
+
+        _currentProcess.Refresh();
+
+        var cpuTime = _currentProcess.TotalProcessorTime;
+        var elapsedSeconds = Math.Max((now - _lastPerformanceSampleTime).TotalSeconds, 0.001);
+        var cpuSeconds = Math.Max((cpuTime - _lastPerformanceSampleCpuTime).TotalSeconds, 0);
+        var cpuPercent = cpuSeconds / elapsedSeconds / Math.Max(1, Environment.ProcessorCount) * 100d;
+        var memoryMb = _currentProcess.WorkingSet64 / 1024d / 1024d;
+
+        CpuUsageText = $"CPU {Math.Clamp(cpuPercent, 0, 100):0}%";
+        MemoryUsageText = $"RAM {memoryMb:0} MB";
+
+        _lastPerformanceSampleTime = now;
+        _lastPerformanceSampleCpuTime = cpuTime;
+        _nextPerformanceSampleTime = now.AddSeconds(1);
     }
 
     private void UpdateTrackMeters()

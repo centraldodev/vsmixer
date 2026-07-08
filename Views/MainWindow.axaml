@@ -602,16 +602,18 @@
         </Grid>
 
         <Border Grid.Row="4" Background="#080c14" BorderBrush="#182233" BorderThickness="0,1,0,0" Padding="14,8">
-            <Grid ColumnDefinitions="Auto,*,*" ColumnSpacing="18" VerticalAlignment="Center">
+            <Grid ColumnDefinitions="Auto,Auto,Auto,*,*" ColumnSpacing="18" VerticalAlignment="Center">
                 <ToggleButton Content="{Binding MidiMappingEditModeText}" IsChecked="{Binding IsMidiMappingEditMode}" ToolTip.Tip="Editar mapeamentos MIDI" Padding="12,6" VerticalAlignment="Center"/>
-                <Grid Grid.Column="1" ColumnDefinitions="Auto,*" ColumnSpacing="10">
+                <TextBlock Grid.Column="1" Text="{Binding CpuUsageText}" Foreground="#7f92aa" FontSize="11" FontWeight="Bold" VerticalAlignment="Center"/>
+                <TextBlock Grid.Column="2" Text="{Binding MemoryUsageText}" Foreground="#7f92aa" FontSize="11" FontWeight="Bold" VerticalAlignment="Center"/>
+                <Grid Grid.Column="3" ColumnDefinitions="Auto,*" ColumnSpacing="10">
                     <TextBlock Text="MASTER A" Foreground="#21c2a8" FontWeight="Bold" FontSize="12" LetterSpacing="0.5" VerticalAlignment="Center"/>
                     <Grid Grid.Column="1">
                         <Slider Classes="master-a-slider" Minimum="0" Maximum="1" Value="{Binding MasterAVolume}" VerticalAlignment="Center" Margin="0,2" IsVisible="{Binding IsNotMidiMappingEditMode}"/>
                         <Button HorizontalAlignment="Stretch" Command="{Binding OpenMidiMappingModalCommand}" CommandParameter="MasterA" Content="{Binding MasterAMidiMappingLabel}" ToolTip.Tip="Mapear Volume Master A" IsVisible="{Binding IsMidiMappingEditMode}"/>
                     </Grid>
                 </Grid>
-                <Grid Grid.Column="2" ColumnDefinitions="Auto,*" ColumnSpacing="10">
+                <Grid Grid.Column="4" ColumnDefinitions="Auto,*" ColumnSpacing="10">
                     <TextBlock Text="MASTER B" Foreground="#9d71ff" FontWeight="Bold" FontSize="12" LetterSpacing="0.5" VerticalAlignment="Center"/>
                     <Grid Grid.Column="1">
                         <Slider Classes="master-b-slider" Minimum="0" Maximum="1" Value="{Binding MasterBVolume}" VerticalAlignment="Center" Margin="0,2" IsVisible="{Binding IsNotMidiMappingEditMode}"/>
