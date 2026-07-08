@@ -25,6 +25,10 @@ public sealed class VsmixerProjectDocument
     public bool MidiControllerEnabled { get; set; }
     public string? MidiControllerName { get; set; }
     public string MidiControlBank { get; set; } = "Transporte";
+    public MidiMapping? PlayMidiMapping { get; set; }
+    public MidiMapping? RewindMidiMapping { get; set; }
+    public MidiMapping? MasterAMidiMapping { get; set; }
+    public MidiMapping? MasterBMidiMapping { get; set; }
     public List<ProjectTrackDocument> Tracks { get; set; } = [];
     public List<ProjectSessionDocument> Sessions { get; set; } = [];
 }

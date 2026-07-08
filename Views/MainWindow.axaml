@@ -405,15 +405,25 @@
 
         <Border Grid.Row="1" Background="#070c14" BorderBrush="#182233" BorderThickness="0,0,0,1">
             <Grid ColumnDefinitions="48,34,Auto,Auto,Auto,*,Auto,Auto,Auto,Auto,Auto,Auto,Auto" Margin="10,8" ColumnSpacing="10">
-                <Button Grid.Column="0" Classes="transport-play" Command="{Binding TogglePlaybackCommand}" ToolTip.Tip="{Binding PlayPauseText}">
-                    <Grid Width="18" Height="18" HorizontalAlignment="Center" VerticalAlignment="Center">
-                        <PathIcon Data="{StaticResource IconPlay}" Foreground="White" Width="18" Height="18" IsVisible="{Binding IsNotPlaying}"/>
-                        <PathIcon Data="{StaticResource IconPause}" Foreground="White" Width="18" Height="18" IsVisible="{Binding IsPlaying}"/>
-                    </Grid>
-                </Button>
-                <Button Grid.Column="1" Classes="icon-button" Command="{Binding RewindCommand}" ToolTip.Tip="Voltar">
-                    <PathIcon Data="{StaticResource IconRewind}" Foreground="#dbe7f5" Width="16" Height="16" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                </Button>
+                <Grid Grid.Column="0">
+                    <Button Classes="transport-play" Command="{Binding TogglePlaybackCommand}" ToolTip.Tip="{Binding PlayPauseText}" IsVisible="{Binding IsNotMidiMappingEditMode}">
+                        <Grid Width="18" Height="18" HorizontalAlignment="Center" VerticalAlignment="Center">
+                            <PathIcon Data="{StaticResource IconPlay}" Foreground="White" Width="18" Height="18" IsVisible="{Binding IsNotPlaying}"/>
+                            <PathIcon Data="{StaticResource IconPause}" Foreground="White" Width="18" Height="18" IsVisible="{Binding IsPlaying}"/>
+                        </Grid>
+                    </Button>
+                    <Button Classes="transport-play" Command="{Binding OpenMidiMappingModalCommand}" CommandParameter="Play" ToolTip.Tip="{Binding PlayMidiMappingLabel}" IsVisible="{Binding IsMidiMappingEditMode}">
+                        <TextBlock Text="M" Foreground="White" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Button>
+                </Grid>
+                <Grid Grid.Column="1">
+                    <Button Classes="icon-button" Command="{Binding RewindCommand}" ToolTip.Tip="Voltar" IsVisible="{Binding IsNotMidiMappingEditMode}">
+                        <PathIcon Data="{StaticResource IconRewind}" Foreground="#dbe7f5" Width="16" Height="16" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Button>
+                    <Button Classes="icon-button" Command="{Binding OpenMidiMappingModalCommand}" CommandParameter="Rewind" ToolTip.Tip="{Binding RewindMidiMappingLabel}" IsVisible="{Binding IsMidiMappingEditMode}">
+                        <TextBlock Text="M" Foreground="#dbe7f5" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Button>
+                </Grid>
                 <StackPanel Grid.Column="2">
                     <TextBlock Text="TIMER" Foreground="#69809a" FontSize="9" FontWeight="Bold" LetterSpacing="0.5"/>
                     <TextBlock Text="{Binding CurrentTime}" Foreground="White" FontSize="17" FontWeight="Bold"/>
@@ -592,14 +602,21 @@
         </Grid>
 
         <Border Grid.Row="4" Background="#080c14" BorderBrush="#182233" BorderThickness="0,1,0,0" Padding="14,8">
-            <Grid ColumnDefinitions="*,*" ColumnSpacing="18" VerticalAlignment="Center">
-                <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
-                    <TextBlock Text="MASTER A" Foreground="#21c2a8" FontWeight="Bold" FontSize="12" LetterSpacing="0.5" VerticalAlignment="Center"/>
-                    <Slider Grid.Column="1" Classes="master-a-slider" Minimum="0" Maximum="1" Value="{Binding MasterAVolume}" VerticalAlignment="Center" Margin="0,2"/>
-                </Grid>
+            <Grid ColumnDefinitions="Auto,*,*" ColumnSpacing="18" VerticalAlignment="Center">
+                <ToggleButton Content="{Binding MidiMappingEditModeText}" IsChecked="{Binding IsMidiMappingEditMode}" ToolTip.Tip="Editar mapeamentos MIDI" Padding="12,6" VerticalAlignment="Center"/>
                 <Grid Grid.Column="1" ColumnDefinitions="Auto,*" ColumnSpacing="10">
+                    <TextBlock Text="MASTER A" Foreground="#21c2a8" FontWeight="Bold" FontSize="12" LetterSpacing="0.5" VerticalAlignment="Center"/>
+                    <Grid Grid.Column="1">
+                        <Slider Classes="master-a-slider" Minimum="0" Maximum="1" Value="{Binding MasterAVolume}" VerticalAlignment="Center" Margin="0,2" IsVisible="{Binding IsNotMidiMappingEditMode}"/>
+                        <Button HorizontalAlignment="Stretch" Command="{Binding OpenMidiMappingModalCommand}" CommandParameter="MasterA" Content="{Binding MasterAMidiMappingLabel}" ToolTip.Tip="Mapear Volume Master A" IsVisible="{Binding IsMidiMappingEditMode}"/>
+                    </Grid>
+                </Grid>
+                <Grid Grid.Column="2" ColumnDefinitions="Auto,*" ColumnSpacing="10">
                     <TextBlock Text="MASTER B" Foreground="#9d71ff" FontWeight="Bold" FontSize="12" LetterSpacing="0.5" VerticalAlignment="Center"/>
-                    <Slider Grid.Column="1" Classes="master-b-slider" Minimum="0" Maximum="1" Value="{Binding MasterBVolume}" VerticalAlignment="Center" Margin="0,2"/>
+                    <Grid Grid.Column="1">
+                        <Slider Classes="master-b-slider" Minimum="0" Maximum="1" Value="{Binding MasterBVolume}" VerticalAlignment="Center" Margin="0,2" IsVisible="{Binding IsNotMidiMappingEditMode}"/>
+                        <Button HorizontalAlignment="Stretch" Command="{Binding OpenMidiMappingModalCommand}" CommandParameter="MasterB" Content="{Binding MasterBMidiMappingLabel}" ToolTip.Tip="Mapear Volume Master B" IsVisible="{Binding IsMidiMappingEditMode}"/>
+                    </Grid>
                 </Grid>
             </Grid>
         </Border>
@@ -651,6 +668,25 @@
                     <Button HorizontalAlignment="Stretch" Command="{Binding DuplicateSelectedSessionCommand}" Content="Duplicar sessao"/>
                     <Button HorizontalAlignment="Stretch" Command="{Binding DeleteSelectedSessionCommand}" Content="Excluir sessao"/>
                     <Button HorizontalAlignment="Right" Command="{Binding CloseSessionActionsModalCommand}" Content="Fechar"/>
+                </StackPanel>
+            </Border>
+        </Border>
+
+        <Border Grid.RowSpan="5" Background="#b3000000" IsVisible="{Binding IsMidiMappingModalOpen}">
+            <Border Width="440" Background="#121b28" BorderBrush="#32475f" BorderThickness="1" CornerRadius="16" Padding="20" HorizontalAlignment="Center" VerticalAlignment="Center" BoxShadow="0 12 40 0 #66000000">
+                <StackPanel Spacing="14">
+                    <TextBlock Text="{Binding MidiMappingModalTitle}" Foreground="White" FontSize="20" FontWeight="Bold"/>
+                    <Border Background="#0c141f" BorderBrush="#213048" BorderThickness="1" CornerRadius="10" Padding="12">
+                        <StackPanel Spacing="8">
+                            <TextBlock Text="{Binding MidiMappingModalInstruction}" Foreground="#d8e6f6" TextWrapping="Wrap"/>
+                            <TextBlock Text="{Binding MidiMappingModalCurrent}" Foreground="#91a7bf" FontWeight="Bold"/>
+                        </StackPanel>
+                    </Border>
+                    <TextBlock Text="Aguardando controle MIDI..." Foreground="#6f88a3" FontSize="11" FontWeight="Bold" LetterSpacing="0.5"/>
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+                        <Button Command="{Binding ClearMidiMappingCommand}" Content="Limpar"/>
+                        <Button Command="{Binding CloseMidiMappingModalCommand}" Content="Cancelar"/>
+                    </StackPanel>
                 </StackPanel>
             </Border>
         </Border>

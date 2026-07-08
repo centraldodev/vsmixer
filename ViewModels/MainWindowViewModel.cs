@@ -17,6 +17,14 @@ using VSMixer.Services;
 
 namespace VSMixer.ViewModels;
 
+public enum MidiMapTarget
+{
+    Play,
+    Rewind,
+    MasterA,
+    MasterB
+}
+
 public partial class MainWindowViewModel : ViewModelBase
 {
     private readonly string[] _sectionColors = ["#2f7dff", "#28b66f", "#db9d27", "#b45cff", "#ef5a77", "#18a8b8"];
@@ -50,6 +58,7 @@ public partial class MainWindowViewModel : ViewModelBase
     private int _metronomeBeatIndex;
     private string? _lastGuideVoiceKey;
     private bool _isRestoringProjectTab;
+    private MidiMapTarget? _pendingMidiMapTarget;
 
     public MainWindowViewModel()
         : this(new BassAudioEngine(), new DryWetMidiControlService())
@@ -76,6 +85,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
         WaveformPeaks.Clear();
         RefreshGuideVoiceFiles();
+        _midiControlService.MessageReceived += OnMidiMessageReceived;
 
         var initialTab = new ProjectTabViewModel(ProjectName, CurrentProjectPath, CreateProjectDocument())
         {
@@ -190,6 +200,12 @@ public partial class MainWindowViewModel : ViewModelBase
     private bool _isSessionActionsModalOpen;
 
     [ObservableProperty]
+    private bool _isMidiMappingModalOpen;
+
+    [ObservableProperty]
+    private bool _isMidiMappingEditMode;
+
+    [ObservableProperty]
     private DeviceOptionViewModel? _selectedAudioOutputDevice;
 
     [ObservableProperty]
@@ -200,6 +216,18 @@ public partial class MainWindowViewModel : ViewModelBase
 
     [ObservableProperty]
     private string _selectedMidiControlBank = "Transporte";
+
+    [ObservableProperty]
+    private MidiMapping? _playMidiMapping;
+
+    [ObservableProperty]
+    private MidiMapping? _rewindMidiMapping;
+
+    [ObservableProperty]
+    private MidiMapping? _masterAMidiMapping;
+
+    [ObservableProperty]
+    private MidiMapping? _masterBMidiMapping;
 
     [ObservableProperty]
     private string _newSessionName = "Sessao";
@@ -222,6 +250,21 @@ public partial class MainWindowViewModel : ViewModelBase
     public string SessionModalSubmitText => IsEditingSession ? "Salvar" : "Adicionar";
     public string SessionActionsTitle => _selectedSessionForMenu is null ? "Sessao" : _selectedSessionForMenu.Name;
     public string SessionLoopActionText => _selectedSessionForMenu?.IsLooping == true ? "Remover loop" : "Colocar em loop";
+    public bool IsNotMidiMappingEditMode => !IsMidiMappingEditMode;
+    public string MidiMappingEditModeText => IsMidiMappingEditMode ? "Sair MIDI" : "MIDI";
+    public string MidiMappingModalTitle => _pendingMidiMapTarget is null ? "Mapear MIDI" : $"Mapear {GetMidiMapTargetDisplayName(_pendingMidiMapTarget.Value)}";
+    public string MidiMappingModalInstruction => _pendingMidiMapTarget is MidiMapTarget.MasterA or MidiMapTarget.MasterB
+        ? "Mova um fader ou knob MIDI CC. O valor recebido sera convertido de 0-127 para 0-100%."
+        : "Pressione um botao, pad ou tecla MIDI para usar como clique desta acao.";
+    public string MidiMappingModalCurrent => _pendingMidiMapTarget is null
+        ? "Nenhum controle selecionado."
+        : GetMidiMapping(_pendingMidiMapTarget.Value) is { } mapping
+            ? $"Atual: {mapping.DisplayName}"
+            : "Atual: sem mapeamento.";
+    public string PlayMidiMappingLabel => FormatMidiMappingLabel(PlayMidiMapping);
+    public string RewindMidiMappingLabel => FormatMidiMappingLabel(RewindMidiMapping);
+    public string MasterAMidiMappingLabel => FormatMidiMappingLabel(MasterAMidiMapping);
+    public string MasterBMidiMappingLabel => FormatMidiMappingLabel(MasterBMidiMapping);
     private bool HasImportedAudio => _audioEngine.TrackCount > 0;
 
     partial void OnProjectNameChanged(string value)
@@ -275,6 +318,39 @@ public partial class MainWindowViewModel : ViewModelBase
     partial void OnMasterBVolumeChanged(double value)
     {
         ApplyMixerStates();
+    }
+
+    partial void OnIsMidiMappingEditModeChanged(bool value)
+    {
+        OnPropertyChanged(nameof(IsNotMidiMappingEditMode));
+        OnPropertyChanged(nameof(MidiMappingEditModeText));
+        StatusMessage = value
+            ? "Modo MIDI ativo. Clique em Play, Voltar, Master A ou Master B para mapear."
+            : "Modo MIDI desativado.";
+    }
+
+    partial void OnPlayMidiMappingChanged(MidiMapping? value)
+    {
+        _ = value;
+        OnPropertyChanged(nameof(PlayMidiMappingLabel));
+    }
+
+    partial void OnRewindMidiMappingChanged(MidiMapping? value)
+    {
+        _ = value;
+        OnPropertyChanged(nameof(RewindMidiMappingLabel));
+    }
+
+    partial void OnMasterAMidiMappingChanged(MidiMapping? value)
+    {
+        _ = value;
+        OnPropertyChanged(nameof(MasterAMidiMappingLabel));
+    }
+
+    partial void OnMasterBMidiMappingChanged(MidiMapping? value)
+    {
+        _ = value;
+        OnPropertyChanged(nameof(MasterBMidiMappingLabel));
     }
 
     partial void OnSelectedTimeSignatureChanged(string value)
@@ -636,6 +712,10 @@ public partial class MainWindowViewModel : ViewModelBase
         SelectedMidiControlBank = MidiControlBanks.Contains(document.MidiControlBank)
             ? document.MidiControlBank
             : "Transporte";
+        PlayMidiMapping = document.PlayMidiMapping;
+        RewindMidiMapping = document.RewindMidiMapping;
+        MasterAMidiMapping = document.MasterAMidiMapping;
+        MasterBMidiMapping = document.MasterBMidiMapping;
         RefreshDeviceLists();
         SelectedAudioOutputDevice = AudioOutputDevices.FirstOrDefault(device => device.Id == document.AudioOutputDeviceId)
             ?? AudioOutputDevices.FirstOrDefault();
@@ -963,6 +1043,63 @@ public partial class MainWindowViewModel : ViewModelBase
     private void CloseAudioSettingsModal()
     {
         IsAudioSettingsModalOpen = false;
+    }
+
+    [RelayCommand]
+    private void ToggleMidiMappingEditMode()
+    {
+        IsMidiMappingEditMode = !IsMidiMappingEditMode;
+    }
+
+    [RelayCommand]
+    private void OpenMidiMappingModal(string target)
+    {
+        if (!TryParseMidiMapTarget(target, out var parsedTarget))
+        {
+            return;
+        }
+
+        _pendingMidiMapTarget = parsedTarget;
+        OnPropertyChanged(nameof(MidiMappingModalTitle));
+        OnPropertyChanged(nameof(MidiMappingModalInstruction));
+        OnPropertyChanged(nameof(MidiMappingModalCurrent));
+        IsMidiMappingModalOpen = true;
+        RefreshDeviceLists();
+
+        if (!IsMidiControllerEnabled)
+        {
+            IsMidiControllerEnabled = true;
+        }
+        else
+        {
+            ApplyMidiControllerState();
+        }
+
+        StatusMessage = $"Aguardando MIDI para {GetMidiMapTargetDisplayName(parsedTarget)}.";
+    }
+
+    [RelayCommand]
+    private void CloseMidiMappingModal()
+    {
+        IsMidiMappingModalOpen = false;
+        _pendingMidiMapTarget = null;
+        OnPropertyChanged(nameof(MidiMappingModalTitle));
+        OnPropertyChanged(nameof(MidiMappingModalInstruction));
+        OnPropertyChanged(nameof(MidiMappingModalCurrent));
+    }
+
+    [RelayCommand]
+    private void ClearMidiMapping()
+    {
+        if (_pendingMidiMapTarget is not { } target)
+        {
+            return;
+        }
+
+        SetMidiMapping(target, null);
+        SaveActiveProjectTab();
+        OnPropertyChanged(nameof(MidiMappingModalCurrent));
+        StatusMessage = $"Mapeamento removido: {GetMidiMapTargetDisplayName(target)}.";
     }
 
     [RelayCommand]
@@ -1641,6 +1778,10 @@ public partial class MainWindowViewModel : ViewModelBase
             MidiControllerEnabled = IsMidiControllerEnabled,
             MidiControllerName = SelectedMidiController?.IsPlaceholder == false ? SelectedMidiController.Name : null,
             MidiControlBank = SelectedMidiControlBank,
+            PlayMidiMapping = PlayMidiMapping,
+            RewindMidiMapping = RewindMidiMapping,
+            MasterAMidiMapping = MasterAMidiMapping,
+            MasterBMidiMapping = MasterBMidiMapping,
             Tracks = Tracks
                 .Where(track => !string.IsNullOrWhiteSpace(track.FilePath))
                 .Select(track => new ProjectTrackDocument
@@ -1663,6 +1804,144 @@ public partial class MainWindowViewModel : ViewModelBase
                     IsLooping = session.IsLooping
                 })
                 .ToList()
+        };
+    }
+
+    private void OnMidiMessageReceived(object? sender, MidiMessageReceivedEventArgs e)
+    {
+        _ = sender;
+
+        Dispatcher.UIThread.Post(() => HandleMidiMessage(e));
+    }
+
+    private void HandleMidiMessage(MidiMessageReceivedEventArgs e)
+    {
+        if (_pendingMidiMapTarget is { } target)
+        {
+            CaptureMidiMapping(target, e);
+            return;
+        }
+
+        if (MatchesMidiMapping(PlayMidiMapping, e) && IsClickMessage(e))
+        {
+            TogglePlayback();
+            return;
+        }
+
+        if (MatchesMidiMapping(RewindMidiMapping, e) && IsClickMessage(e))
+        {
+            Rewind();
+            return;
+        }
+
+        if (MatchesMidiMapping(MasterAMidiMapping, e) && e.Kind == MidiMessageKind.ControlChange)
+        {
+            MasterAVolume = MidiValueToVolume(e.Value);
+            SaveActiveProjectTab();
+            return;
+        }
+
+        if (MatchesMidiMapping(MasterBMidiMapping, e) && e.Kind == MidiMessageKind.ControlChange)
+        {
+            MasterBVolume = MidiValueToVolume(e.Value);
+            SaveActiveProjectTab();
+        }
+    }
+
+    private void CaptureMidiMapping(MidiMapTarget target, MidiMessageReceivedEventArgs e)
+    {
+        if ((target is MidiMapTarget.MasterA or MidiMapTarget.MasterB) && e.Kind != MidiMessageKind.ControlChange)
+        {
+            StatusMessage = "Master A/B precisa de um fader ou knob MIDI CC.";
+            return;
+        }
+
+        if ((target is MidiMapTarget.Play or MidiMapTarget.Rewind) && !IsClickMessage(e))
+        {
+            return;
+        }
+
+        var mapping = new MidiMapping
+        {
+            Kind = e.Kind,
+            Channel = e.Channel,
+            Number = e.Number
+        };
+
+        SetMidiMapping(target, mapping);
+        SaveActiveProjectTab();
+        StatusMessage = $"{GetMidiMapTargetDisplayName(target)} mapeado para {mapping.DisplayName}.";
+        CloseMidiMappingModal();
+    }
+
+    private MidiMapping? GetMidiMapping(MidiMapTarget target)
+    {
+        return target switch
+        {
+            MidiMapTarget.Play => PlayMidiMapping,
+            MidiMapTarget.Rewind => RewindMidiMapping,
+            MidiMapTarget.MasterA => MasterAMidiMapping,
+            MidiMapTarget.MasterB => MasterBMidiMapping,
+            _ => null
+        };
+    }
+
+    private void SetMidiMapping(MidiMapTarget target, MidiMapping? mapping)
+    {
+        switch (target)
+        {
+            case MidiMapTarget.Play:
+                PlayMidiMapping = mapping;
+                break;
+            case MidiMapTarget.Rewind:
+                RewindMidiMapping = mapping;
+                break;
+            case MidiMapTarget.MasterA:
+                MasterAMidiMapping = mapping;
+                break;
+            case MidiMapTarget.MasterB:
+                MasterBMidiMapping = mapping;
+                break;
+        }
+    }
+
+    private static bool TryParseMidiMapTarget(string target, out MidiMapTarget parsedTarget)
+    {
+        return Enum.TryParse(target, ignoreCase: true, out parsedTarget);
+    }
+
+    private static bool MatchesMidiMapping(MidiMapping? mapping, MidiMessageReceivedEventArgs e)
+    {
+        return mapping is not null
+            && mapping.Kind == e.Kind
+            && mapping.Channel == e.Channel
+            && mapping.Number == e.Number;
+    }
+
+    private static bool IsClickMessage(MidiMessageReceivedEventArgs e)
+    {
+        return e.Value > 0;
+    }
+
+    private static double MidiValueToVolume(int value)
+    {
+        return Math.Clamp(value, 0, 127) / 127d;
+    }
+
+    private static string FormatMidiMappingLabel(MidiMapping? mapping)
+    {
+        return mapping is null ? "Mapear MIDI" : mapping.DisplayName;
+    }
+
+    private static string GetMidiMapTargetDisplayName(MidiMapTarget target)
+    {
+        return target switch
+        {
+            MidiMapTarget.Play => "Play",
+            MidiMapTarget.Rewind => "Voltar",
+            MidiMapTarget.MasterA => "Volume Master A",
+            MidiMapTarget.MasterB => "Volume Master B",
+            _ => "MIDI"
         };
     }
 
