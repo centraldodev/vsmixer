@@ -38,7 +38,12 @@ public partial class MainWindowViewModel : ViewModelBase
     private readonly Dictionary<string, string> _guideVoiceFiles = new(StringComparer.OrdinalIgnoreCase);
     private readonly IAudioEngine _audioEngine;
     private readonly IMidiControlService _midiControlService;
+    private SessionRegionViewModel? _editingSession;
+    private SessionRegionViewModel? _queuedSession;
+    private SessionRegionViewModel? _activePlaybackSession;
+    private SessionRegionViewModel? _selectedSessionForMenu;
     private readonly DispatcherTimer _meterTimer;
+    private readonly DispatcherTimer _metronomeTimer;
     private readonly Stopwatch _metronomeClock = new();
     private double _durationSeconds;
     private double _nextMetronomeBeatSeconds;
@@ -61,6 +66,13 @@ public partial class MainWindowViewModel : ViewModelBase
         };
         _meterTimer.Tick += (_, _) => UpdateTransport();
         _meterTimer.Start();
+
+        _metronomeTimer = new DispatcherTimer
+        {
+            Interval = TimeSpan.FromMilliseconds(10)
+        };
+        _metronomeTimer.Tick += (_, _) => UpdateMetronome();
+        _metronomeTimer.Start();
 
         WaveformPeaks.Clear();
         RefreshGuideVoiceFiles();
@@ -157,7 +169,10 @@ public partial class MainWindowViewModel : ViewModelBase
     private string _selectedPadNote = "C";
 
     [ObservableProperty]
-    private double _masterVolume = 0.96;
+    private double _masterAVolume = 0.96;
+
+    [ObservableProperty]
+    private double _masterBVolume = 0.96;
 
     [ObservableProperty]
     private double _playbackProgress;
@@ -170,6 +185,9 @@ public partial class MainWindowViewModel : ViewModelBase
 
     [ObservableProperty]
     private bool _isAudioSettingsModalOpen;
+
+    [ObservableProperty]
+    private bool _isSessionActionsModalOpen;
 
     [ObservableProperty]
     private DeviceOptionViewModel? _selectedAudioOutputDevice;
@@ -199,6 +217,11 @@ public partial class MainWindowViewModel : ViewModelBase
     public string PlayPauseText => IsPlaying ? "Pause" : "Play";
     public bool IsNotPlaying => !IsPlaying;
     public bool HasSavedProject => !string.IsNullOrWhiteSpace(CurrentProjectPath);
+    public bool IsEditingSession => _editingSession is not null;
+    public string SessionModalTitle => IsEditingSession ? "Editar sessao" : "Nova sessao";
+    public string SessionModalSubmitText => IsEditingSession ? "Salvar" : "Adicionar";
+    public string SessionActionsTitle => _selectedSessionForMenu is null ? "Sessao" : _selectedSessionForMenu.Name;
+    public string SessionLoopActionText => _selectedSessionForMenu?.IsLooping == true ? "Remover loop" : "Colocar em loop";
     private bool HasImportedAudio => _audioEngine.TrackCount > 0;
 
     partial void OnProjectNameChanged(string value)
@@ -244,9 +267,14 @@ public partial class MainWindowViewModel : ViewModelBase
         OnPropertyChanged(nameof(HasSavedProject));
     }
 
-    partial void OnMasterVolumeChanged(double value)
+    partial void OnMasterAVolumeChanged(double value)
     {
-        _audioEngine.SetMasterVolume(value);
+        ApplyMixerStates();
+    }
+
+    partial void OnMasterBVolumeChanged(double value)
+    {
+        ApplyMixerStates();
     }
 
     partial void OnSelectedTimeSignatureChanged(string value)
@@ -451,10 +479,9 @@ public partial class MainWindowViewModel : ViewModelBase
         ClearTracks();
         for (var i = 0; i < loaded.Length; i++)
         {
-            var isPriorityTrack = GetTrackPriorityRank(loaded[i].Name) < 2;
             var track = new TrackChannelViewModel(i + 1, loaded[i].Name, 0, loaded[i].FilePath)
             {
-                Pan = isPriorityTrack ? -1 : 1
+                MasterBus = DetermineDefaultMasterBus(loaded[i].Name)
             };
             SubscribeTrack(track);
             Tracks.Add(track);
@@ -527,6 +554,8 @@ public partial class MainWindowViewModel : ViewModelBase
         _audioEngine.Seek(targetSeconds);
         _audioEngine.StopGuideVoice();
         _lastGuideVoiceKey = null;
+        ClearQueuedSession();
+        _activePlaybackSession = GetSessionAtPosition(targetSeconds);
         if (IsPlaying && MetronomeEnabled)
         {
             StartMetronome(playFirstClick: false);
@@ -594,7 +623,8 @@ public partial class MainWindowViewModel : ViewModelBase
         PitchOffset = document.PitchOffset;
         SelectedTimeSignature = document.SelectedTimeSignature;
         SelectedGrid = document.SelectedGrid;
-        MasterVolume = document.MasterVolume;
+        MasterAVolume = document.MasterAVolume;
+        MasterBVolume = document.MasterBVolume;
         MetronomeEnabled = document.MetronomeEnabled;
         MetronomeVolume = document.MetronomeVolume;
         MetronomePan = document.MetronomePan;
@@ -623,8 +653,8 @@ public partial class MainWindowViewModel : ViewModelBase
             var savedTrack = document.Tracks.FirstOrDefault(track => string.Equals(track.FilePath, loaded[i].FilePath, StringComparison.OrdinalIgnoreCase));
             var track = new TrackChannelViewModel(i + 1, savedTrack?.Name ?? loaded[i].Name, 0, loaded[i].FilePath)
             {
-                Volume = savedTrack?.Volume ?? 0.72,
-                Pan = savedTrack?.Pan ?? 0,
+                Volume = savedTrack?.Volume ?? 1,
+                MasterBus = savedTrack?.MasterBus ?? DetermineDefaultMasterBus(savedTrack?.Name ?? loaded[i].Name),
                 IsMuted = savedTrack?.IsMuted ?? false,
                 IsSolo = savedTrack?.IsSolo ?? false
             };
@@ -635,7 +665,10 @@ public partial class MainWindowViewModel : ViewModelBase
         SessionRegions.Clear();
         foreach (var session in document.Sessions)
         {
-            SessionRegions.Add(new SessionRegionViewModel(session.Name, session.StartMeasure, session.EndMeasure, session.Color));
+            SessionRegions.Add(new SessionRegionViewModel(session.Name, session.StartMeasure, session.EndMeasure, session.Color)
+            {
+                IsLooping = session.IsLooping
+            });
         }
 
         CurrentProjectPath = projectPath;
@@ -681,18 +714,23 @@ public partial class MainWindowViewModel : ViewModelBase
     [RelayCommand]
     private void TogglePlayback()
     {
-        if (!HasImportedAudio)
+        if (!HasImportedAudio && !MetronomeEnabled)
         {
-            StatusMessage = "Importe pelo menos uma track antes de tocar.";
+            StatusMessage = "Importe uma track ou habilite o metronomo antes de tocar.";
             return;
         }
 
         IsPlaying = !IsPlaying;
         if (IsPlaying)
         {
-            _audioEngine.Play();
+            if (HasImportedAudio)
+            {
+                _audioEngine.Play();
+                _activePlaybackSession = GetSessionAtPosition(_audioEngine.CurrentPositionSeconds);
+            }
+
             StartMetronome(playFirstClick: MetronomeEnabled);
-            StatusMessage = "Tocando.";
+            StatusMessage = HasImportedAudio ? "Tocando." : "Metronomo tocando.";
         }
         else
         {
@@ -714,6 +752,8 @@ public partial class MainWindowViewModel : ViewModelBase
         _audioEngine.StopGuideVoice();
         StopMetronome();
         _lastGuideVoiceKey = null;
+        ClearQueuedSession();
+        _activePlaybackSession = null;
         UpdateClockFields(0);
     }
 
@@ -736,6 +776,11 @@ public partial class MainWindowViewModel : ViewModelBase
     [RelayCommand]
     private void OpenAddSessionModal()
     {
+        _editingSession = null;
+        OnPropertyChanged(nameof(IsEditingSession));
+        OnPropertyChanged(nameof(SessionModalTitle));
+        OnPropertyChanged(nameof(SessionModalSubmitText));
+
         RefreshGuideVoiceFiles();
         RefreshSessionCopyOptions();
 
@@ -752,9 +797,159 @@ public partial class MainWindowViewModel : ViewModelBase
     }
 
     [RelayCommand]
+    private void OpenEditSessionModal(SessionRegionViewModel session)
+    {
+        IsSessionActionsModalOpen = false;
+        _editingSession = session;
+        OnPropertyChanged(nameof(IsEditingSession));
+        OnPropertyChanged(nameof(SessionModalTitle));
+        OnPropertyChanged(nameof(SessionModalSubmitText));
+
+        RefreshGuideVoiceFiles();
+        RefreshSessionCopyOptions();
+
+        if (!SessionNameOptions.Contains(session.Name))
+        {
+            SessionNameOptions.Insert(0, session.Name);
+        }
+
+        NewSessionName = session.Name;
+        NewSessionStartMeasure = session.StartMeasure;
+        NewSessionEndMeasure = session.EndMeasure;
+        SelectedSessionCopySource = SessionCopyOptions.FirstOrDefault();
+        IsAddSessionModalOpen = true;
+    }
+
+    [RelayCommand]
     private void CloseAddSessionModal()
     {
         IsAddSessionModalOpen = false;
+        _editingSession = null;
+        OnPropertyChanged(nameof(IsEditingSession));
+        OnPropertyChanged(nameof(SessionModalTitle));
+        OnPropertyChanged(nameof(SessionModalSubmitText));
+    }
+
+    [RelayCommand]
+    private void OpenSessionActionsModal(SessionRegionViewModel session)
+    {
+        _selectedSessionForMenu = session;
+        OnPropertyChanged(nameof(SessionActionsTitle));
+        OnPropertyChanged(nameof(SessionLoopActionText));
+        IsSessionActionsModalOpen = true;
+    }
+
+    [RelayCommand]
+    private void CloseSessionActionsModal()
+    {
+        IsSessionActionsModalOpen = false;
+        _selectedSessionForMenu = null;
+        OnPropertyChanged(nameof(SessionActionsTitle));
+        OnPropertyChanged(nameof(SessionLoopActionText));
+    }
+
+    [RelayCommand]
+    private void EditSelectedSession()
+    {
+        if (_selectedSessionForMenu is null)
+        {
+            return;
+        }
+
+        var session = _selectedSessionForMenu;
+        CloseSessionActionsModal();
+        OpenEditSessionModal(session);
+    }
+
+    [RelayCommand]
+    private void ToggleSelectedSessionLoop()
+    {
+        if (_selectedSessionForMenu is null)
+        {
+            return;
+        }
+
+        foreach (var session in SessionRegions)
+        {
+            if (!ReferenceEquals(session, _selectedSessionForMenu))
+            {
+                session.IsLooping = false;
+            }
+        }
+
+        _selectedSessionForMenu.IsLooping = !_selectedSessionForMenu.IsLooping;
+        OnPropertyChanged(nameof(SessionLoopActionText));
+        SaveActiveProjectTab();
+    }
+
+    [RelayCommand]
+    private void DuplicateSelectedSession()
+    {
+        if (_selectedSessionForMenu is null)
+        {
+            return;
+        }
+
+        var source = _selectedSessionForMenu;
+        var length = Math.Max(1, source.EndMeasure - source.StartMeasure + 1);
+        var start = SessionRegions.Count == 0 ? 1 : SessionRegions.Max(session => session.EndMeasure) + 1;
+        var end = start + length - 1;
+        var color = _sectionColors[SessionRegions.Count % _sectionColors.Length];
+        SessionRegions.Add(new SessionRegionViewModel(source.Name, start, end, color));
+        StatusMessage = $"Sessao duplicada no fim: {source.Name}.";
+        CloseSessionActionsModal();
+        SaveActiveProjectTab();
+    }
+
+    [RelayCommand]
+    private void DeleteSelectedSession()
+    {
+        if (_selectedSessionForMenu is null)
+        {
+            return;
+        }
+
+        var session = _selectedSessionForMenu;
+        if (ReferenceEquals(_queuedSession, session))
+        {
+            ClearQueuedSession();
+        }
+
+        if (ReferenceEquals(_activePlaybackSession, session))
+        {
+            _activePlaybackSession = null;
+        }
+
+        SessionRegions.Remove(session);
+        CloseSessionActionsModal();
+        SaveActiveProjectTab();
+    }
+
+    [RelayCommand]
+    private void QueueOrStartSession(SessionRegionViewModel session)
+    {
+        if (!HasImportedAudio)
+        {
+            StatusMessage = "Importe pelo menos uma track antes de iniciar uma sessao.";
+            return;
+        }
+
+        if (ReferenceEquals(_queuedSession, session))
+        {
+            ClearQueuedSession();
+            StatusMessage = $"Agendamento cancelado: {session.Name}.";
+            return;
+        }
+
+        var currentSession = _activePlaybackSession ?? GetSessionAtPosition(_audioEngine.CurrentPositionSeconds);
+        if (IsPlaying && currentSession is not null && !ReferenceEquals(currentSession, session))
+        {
+            SetQueuedSession(session);
+            StatusMessage = $"Sessao agendada: {session.Name}.";
+            return;
+        }
+
+        StartSessionNow(session);
     }
 
     [RelayCommand]
@@ -776,9 +971,23 @@ public partial class MainWindowViewModel : ViewModelBase
         var name = string.IsNullOrWhiteSpace(NewSessionName) ? $"Sessao {SessionRegions.Count + 1}" : NewSessionName.Trim();
         var start = Math.Max(1, Math.Min(NewSessionStartMeasure, NewSessionEndMeasure));
         var end = Math.Max(start, Math.Max(NewSessionStartMeasure, NewSessionEndMeasure));
-        var color = _sectionColors[SessionRegions.Count % _sectionColors.Length];
 
-        SessionRegions.Add(new SessionRegionViewModel(name, start, end, color));
+        if (_editingSession is not null)
+        {
+            _editingSession.Name = name;
+            _editingSession.StartMeasure = start;
+            _editingSession.EndMeasure = end;
+            _editingSession = null;
+            OnPropertyChanged(nameof(IsEditingSession));
+            OnPropertyChanged(nameof(SessionModalTitle));
+            OnPropertyChanged(nameof(SessionModalSubmitText));
+        }
+        else
+        {
+            var color = _sectionColors[SessionRegions.Count % _sectionColors.Length];
+            SessionRegions.Add(new SessionRegionViewModel(name, start, end, color));
+        }
+
         IsAddSessionModalOpen = false;
         SaveActiveProjectTab();
     }
@@ -826,7 +1035,7 @@ public partial class MainWindowViewModel : ViewModelBase
     private void OnTrackPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (e.PropertyName is nameof(TrackChannelViewModel.Volume)
-            or nameof(TrackChannelViewModel.Pan)
+            or nameof(TrackChannelViewModel.MasterBus)
             or nameof(TrackChannelViewModel.IsMuted)
             or nameof(TrackChannelViewModel.IsSolo))
         {
@@ -842,16 +1051,100 @@ public partial class MainWindowViewModel : ViewModelBase
         {
             var track = Tracks[i];
             var effectiveMuted = track.IsMuted || (anySolo && !track.IsSolo);
-            _audioEngine.SetTrackState(i, track.Volume, track.Pan, effectiveMuted);
+            var busVolume = track.MasterBus == MasterBus.A ? MasterAVolume : MasterBVolume;
+            var pan = track.MasterBus == MasterBus.A ? -1d : 1d;
+            _audioEngine.SetTrackState(i, track.Volume * busVolume, pan, effectiveMuted);
         }
+    }
+
+    private void UpdateScheduledSessionPlayback(double positionSeconds)
+    {
+        if (!IsPlaying || SessionRegions.Count == 0)
+        {
+            return;
+        }
+
+        _activePlaybackSession ??= GetSessionAtPosition(positionSeconds);
+        if (_activePlaybackSession is null)
+        {
+            return;
+        }
+
+        var nextSectionStartSeconds = GetMeasureStartSeconds(_activePlaybackSession.EndMeasure + 1);
+        if (positionSeconds < nextSectionStartSeconds - 0.035)
+        {
+            return;
+        }
+
+        if (_queuedSession is not null)
+        {
+            var queued = _queuedSession;
+            ClearQueuedSession();
+            StartSessionNow(queued, keepQueuedSession: true);
+            return;
+        }
+
+        if (_activePlaybackSession.IsLooping)
+        {
+            StartSessionNow(_activePlaybackSession, keepQueuedSession: true);
+            return;
+        }
+
+        _activePlaybackSession = GetSessionAtPosition(positionSeconds);
+    }
+
+    private void StartSessionNow(SessionRegionViewModel session, bool keepQueuedSession = false)
+    {
+        var targetSeconds = GetMeasureStartSeconds(session.StartMeasure);
+        _audioEngine.Seek(targetSeconds);
+        _audioEngine.StopGuideVoice();
+        _lastGuideVoiceKey = null;
+        _activePlaybackSession = session;
+
+        if (!keepQueuedSession)
+        {
+            ClearQueuedSession();
+        }
+
+        if (!IsPlaying)
+        {
+            IsPlaying = true;
+            _audioEngine.Play();
+        }
+
+        if (MetronomeEnabled)
+        {
+            StartMetronome(playFirstClick: true);
+        }
+
+        UpdateClockFields(targetSeconds);
+        StatusMessage = $"Tocando sessao: {session.Name}.";
+    }
+
+    private void SetQueuedSession(SessionRegionViewModel session)
+    {
+        ClearQueuedSession();
+        _queuedSession = session;
+        _queuedSession.IsQueued = true;
+    }
+
+    private void ClearQueuedSession()
+    {
+        if (_queuedSession is not null)
+        {
+            _queuedSession.IsQueued = false;
+        }
+
+        _queuedSession = null;
     }
 
     private void UpdateTransport()
     {
         var position = HasImportedAudio ? _audioEngine.CurrentPositionSeconds : 0;
+        UpdateScheduledSessionPlayback(position);
+        position = HasImportedAudio ? _audioEngine.CurrentPositionSeconds : 0;
         UpdateClockFields(position);
         UpdateTrackMeters();
-        UpdateMetronome();
         UpdateGuideVoice(position);
 
         if (IsPlaying && _durationSeconds > 0 && position >= _durationSeconds - 0.05)
@@ -860,6 +1153,8 @@ public partial class MainWindowViewModel : ViewModelBase
             _audioEngine.StopGuideVoice();
             StopMetronome();
             _lastGuideVoiceKey = null;
+            ClearQueuedSession();
+            _activePlaybackSession = null;
             StatusMessage = "Fim da reproducao.";
         }
     }
@@ -1040,6 +1335,11 @@ public partial class MainWindowViewModel : ViewModelBase
         }
 
         return 2;
+    }
+
+    private static MasterBus DetermineDefaultMasterBus(string trackName)
+    {
+        return GetTrackPriorityRank(trackName) < 2 ? MasterBus.A : MasterBus.B;
     }
 
     private HashSet<int> GetPitchExemptTrackIndices()
@@ -1278,6 +1578,21 @@ public partial class MainWindowViewModel : ViewModelBase
         return (int)Math.Floor(totalBeats / GetBeatsPerMeasure()) + 1;
     }
 
+    private double GetMeasureStartSeconds(int measure)
+    {
+        var bpm = Math.Max(1, DetectedBpm);
+        var beatsBeforeMeasure = Math.Max(0, measure - 1) * GetBeatsPerMeasure();
+        return beatsBeforeMeasure * 60d / bpm;
+    }
+
+    private SessionRegionViewModel? GetSessionAtPosition(double positionSeconds)
+    {
+        var measure = GetMeasureAtPosition(positionSeconds);
+        return SessionRegions
+            .OrderBy(region => region.StartMeasure)
+            .FirstOrDefault(region => measure >= region.StartMeasure && measure <= region.EndMeasure);
+    }
+
     private double GetBeatIntervalSeconds()
     {
         return 60d / Math.Clamp(PlaybackBpm, 1, 300) * GetGridBeatLength();
@@ -1311,7 +1626,8 @@ public partial class MainWindowViewModel : ViewModelBase
             PitchOffset = PitchOffset,
             SelectedTimeSignature = SelectedTimeSignature,
             SelectedGrid = SelectedGrid,
-            MasterVolume = MasterVolume,
+            MasterAVolume = MasterAVolume,
+            MasterBVolume = MasterBVolume,
             MetronomeEnabled = MetronomeEnabled,
             MetronomeVolume = MetronomeVolume,
             MetronomePan = MetronomePan,
@@ -1332,7 +1648,7 @@ public partial class MainWindowViewModel : ViewModelBase
                     Name = track.Name,
                     FilePath = track.FilePath!,
                     Volume = track.Volume,
-                    Pan = track.Pan,
+                    MasterBus = track.MasterBus,
                     IsMuted = track.IsMuted,
                     IsSolo = track.IsSolo
                 })
@@ -1343,7 +1659,8 @@ public partial class MainWindowViewModel : ViewModelBase
                     Name = session.Name,
                     StartMeasure = session.StartMeasure,
                     EndMeasure = session.EndMeasure,
-                    Color = session.Color
+                    Color = session.Color,
+                    IsLooping = session.IsLooping
                 })
                 .ToList()
         };

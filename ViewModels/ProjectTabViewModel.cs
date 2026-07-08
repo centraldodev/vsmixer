@@ -23,7 +23,7 @@ public partial class ProjectTabViewModel : ViewModelBase
 
     public string? ProjectPath { get; set; }
     public VsmixerProjectDocument Document { get; set; }
-    public string DisplayName => IsActive ? $"* {Name}" : Name;
+    public string DisplayName => Name;
     public string MidiMappingMenuLabel => SelectMidiMapping is null ? "Mapear MIDI..." : $"Remapear MIDI ({SelectMidiMapping.DisplayName})";
     public bool HasMidiMapping => SelectMidiMapping is not null;
 

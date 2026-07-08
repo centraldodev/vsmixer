@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Globalization;
+using System.Text;
 using ManagedBass;
 using ManagedBass.Fx;
 
@@ -267,9 +269,13 @@ public sealed class BassAudioEngine : IAudioEngine
 
         var candidates = _filePaths
             .Where(IsRhythmCandidate)
-            .DefaultIfEmpty(_filePaths[0])
-            .Take(3)
+            .Take(4)
             .ToArray();
+
+        if (candidates.Length == 0)
+        {
+            return null;
+        }
 
         var estimates = candidates
             .Select(DetectBpmFromFile)
@@ -379,17 +385,6 @@ public sealed class BassAudioEngine : IAudioEngine
         return Math.Clamp(Math.Max(left, right) / 32768d, 0, 1);
     }
 
-    public void SetMasterVolume(double volume)
-    {
-        Initialize();
-        if (!IsReady)
-        {
-            return;
-        }
-
-        Bass.GlobalStreamVolume = (int)(Math.Clamp(volume, 0, 1) * 10000);
-    }
-
     public void SetTempo(double tempoRatio)
     {
         if (!IsReady)
@@ -455,7 +450,7 @@ public sealed class BassAudioEngine : IAudioEngine
             return;
         }
 
-        var channel = Bass.SampleGetChannel(sample, true);
+        var channel = Bass.SampleGetChannel(sample, false);
         if (channel == 0)
         {
             return;
@@ -604,13 +599,19 @@ public sealed class BassAudioEngine : IAudioEngine
             data[i] = (float)(Math.Sin(2 * Math.PI * frequency * i / MetronomeSampleRate) * envelope * volume);
         }
 
-        var sample = Bass.CreateSample(data.Length * sizeof(float), MetronomeSampleRate, 1, 8, BassFlags.Float);
+        var sample = Bass.CreateSample(data.Length * sizeof(float), MetronomeSampleRate, 1, 32, BassFlags.Float);
         if (sample == 0)
         {
             return 0;
         }
 
-        return Bass.SampleSetData(sample, data) ? sample : 0;
+        if (Bass.SampleSetData(sample, data))
+        {
+            return sample;
+        }
+
+        Bass.SampleFree(sample);
+        return 0;
     }
 
     private void MoveMetronomeSamplesToDevice(int deviceId)
@@ -718,15 +719,93 @@ public sealed class BassAudioEngine : IAudioEngine
 
     private static bool IsRhythmCandidate(string filePath)
     {
-        var name = Path.GetFileNameWithoutExtension(filePath).ToLowerInvariant();
-        return name.Contains("drum", StringComparison.Ordinal)
-            || name.Contains("drums", StringComparison.Ordinal)
-            || name.Contains("drummer", StringComparison.Ordinal)
-            || name.Contains("bateria", StringComparison.Ordinal)
-            || name.Contains("click", StringComparison.Ordinal)
-            || name.Contains("metronome", StringComparison.Ordinal)
-            || name.Contains("metronomo", StringComparison.Ordinal)
-            || name.Contains("metrônomo", StringComparison.Ordinal);
+        var name = NormalizeTrackName(Path.GetFileNameWithoutExtension(filePath));
+        var tokens = name
+            .Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .ToHashSet(StringComparer.Ordinal);
+
+        if (tokens.Overlaps(RhythmKeywords))
+        {
+            return true;
+        }
+
+        return name.Contains("hi hat", StringComparison.Ordinal)
+            || name.Contains("hihat", StringComparison.Ordinal)
+            || name.Contains("drum loop", StringComparison.Ordinal)
+            || name.Contains("percussion loop", StringComparison.Ordinal)
+            || name.Contains("percussao loop", StringComparison.Ordinal);
+    }
+
+    private static readonly HashSet<string> RhythmKeywords = new(StringComparer.Ordinal)
+    {
+        "bateria",
+        "batera",
+        "batida",
+        "click",
+        "metronome",
+        "metronomo",
+        "drum",
+        "drums",
+        "drummer",
+        "beat",
+        "beats",
+        "percussion",
+        "percussao",
+        "perc",
+        "kick",
+        "bd",
+        "bumbo",
+        "snare",
+        "caixa",
+        "hat",
+        "hats",
+        "hihat",
+        "tom",
+        "toms",
+        "cymbal",
+        "cymbals",
+        "prato",
+        "pratos",
+        "overhead",
+        "overheads",
+        "oh",
+        "shaker",
+        "tambourine",
+        "tamborim",
+        "conga",
+        "congas",
+        "bongo",
+        "bongos"
+    };
+
+    private static string NormalizeTrackName(string value)
+    {
+        var normalized = value.Normalize(NormalizationForm.FormD);
+        var builder = new StringBuilder(normalized.Length);
+        var previousWasSeparator = false;
+
+        foreach (var character in normalized)
+        {
+            if (CharUnicodeInfo.GetUnicodeCategory(character) == UnicodeCategory.NonSpacingMark)
+            {
+                continue;
+            }
+
+            if (char.IsLetterOrDigit(character))
+            {
+                builder.Append(char.ToLowerInvariant(character));
+                previousWasSeparator = false;
+                continue;
+            }
+
+            if (!previousWasSeparator)
+            {
+                builder.Append(' ');
+                previousWasSeparator = true;
+            }
+        }
+
+        return builder.ToString().Trim();
     }
 
     private static int? DetectBpmFromFile(string filePath)

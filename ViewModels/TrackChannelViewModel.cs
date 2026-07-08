@@ -1,5 +1,6 @@
 using System.IO;
 using CommunityToolkit.Mvvm.ComponentModel;
+using VSMixer.Models;
 
 namespace VSMixer.ViewModels;
 
@@ -20,10 +21,10 @@ public partial class TrackChannelViewModel : ViewModelBase
     private string _name;
 
     [ObservableProperty]
-    private double _volume = 0.72;
+    private double _volume = 1;
 
     [ObservableProperty]
-    private double _pan;
+    private MasterBus _masterBus = MasterBus.B;
 
     [ObservableProperty]
     private double _level;
@@ -39,4 +40,34 @@ public partial class TrackChannelViewModel : ViewModelBase
     public string FileName => string.IsNullOrWhiteSpace(FilePath)
         ? Name
         : Path.GetFileName(FilePath);
+
+    public bool IsMasterA
+    {
+        get => MasterBus == MasterBus.A;
+        set
+        {
+            if (value)
+            {
+                MasterBus = MasterBus.A;
+            }
+        }
+    }
+
+    public bool IsMasterB
+    {
+        get => MasterBus == MasterBus.B;
+        set
+        {
+            if (value)
+            {
+                MasterBus = MasterBus.B;
+            }
+        }
+    }
+
+    partial void OnMasterBusChanged(MasterBus value)
+    {
+        OnPropertyChanged(nameof(IsMasterA));
+        OnPropertyChanged(nameof(IsMasterB));
+    }
 }

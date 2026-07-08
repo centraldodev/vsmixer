@@ -22,7 +22,6 @@ public interface IAudioEngine
     void RemoveTrack(int trackIndex);
     void SetTrackState(int trackIndex, double volume, double pan, bool isMuted);
     double GetTrackLevel(int trackIndex);
-    void SetMasterVolume(double volume);
     void SetTempo(double bpmOffset);
     void SetPitch(double semitoneOffset, IReadOnlyCollection<int> excludedTrackIndices);
     void SetMetronomeState(double volume, double pan);

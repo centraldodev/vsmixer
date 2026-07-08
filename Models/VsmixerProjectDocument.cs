@@ -10,7 +10,8 @@ public sealed class VsmixerProjectDocument
     public int PitchOffset { get; set; }
     public string SelectedTimeSignature { get; set; } = "4/4";
     public string SelectedGrid { get; set; } = "1/4";
-    public double MasterVolume { get; set; } = 0.96;
+    public double MasterAVolume { get; set; } = 0.96;
+    public double MasterBVolume { get; set; } = 0.96;
     public bool MetronomeEnabled { get; set; } = true;
     public double MetronomeVolume { get; set; } = 0.82;
     public double MetronomePan { get; set; }
@@ -32,8 +33,8 @@ public sealed class ProjectTrackDocument
 {
     public string Name { get; set; } = string.Empty;
     public string FilePath { get; set; } = string.Empty;
-    public double Volume { get; set; } = 0.72;
-    public double Pan { get; set; }
+    public double Volume { get; set; } = 1;
+    public MasterBus MasterBus { get; set; } = MasterBus.B;
     public bool IsMuted { get; set; }
     public bool IsSolo { get; set; }
 }
@@ -44,4 +45,5 @@ public sealed class ProjectSessionDocument
     public int StartMeasure { get; set; }
     public int EndMeasure { get; set; }
     public string Color { get; set; } = "#2f7dff";
+    public bool IsLooping { get; set; }
 }
