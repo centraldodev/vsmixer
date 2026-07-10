@@ -1,18 +1,194 @@
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Platform.Storage;
-using System;
-using System.Linq;
-using System.Threading.Tasks;
 using VSMixer.ViewModels;
 
 namespace VSMixer.Views;
 
 public partial class MainWindow : Window
 {
+    private bool _forceClose;
+    private bool _isCloseDialogOpen;
+
     public MainWindow()
     {
         InitializeComponent();
+        Opened += MainWindow_Opened;
+        Closing += MainWindow_Closing;
+        Closed += MainWindow_Closed;
+        KeyDown += MainWindow_KeyDown;
+    }
+
+    private async void MainWindow_KeyDown(object? sender, KeyEventArgs e)
+    {
+        if (DataContext is not MainWindowViewModel viewModel)
+        {
+            return;
+        }
+
+        var commandModifier = e.KeyModifiers.HasFlag(KeyModifiers.Control)
+            || e.KeyModifiers.HasFlag(KeyModifiers.Meta);
+        if (commandModifier && e.Key == Key.S)
+        {
+            if (viewModel.HasSavedProject)
+            {
+                viewModel.SaveCurrentProject();
+            }
+            else
+            {
+                var path = await PickSaveProjectPath(viewModel.ProjectName);
+                if (!string.IsNullOrWhiteSpace(path))
+                {
+                    viewModel.SaveProject(path);
+                }
+            }
+
+            e.Handled = true;
+            return;
+        }
+
+        if (e.Source is TextBox or ComboBox)
+        {
+            return;
+        }
+
+        if (e.Key == Key.Space)
+        {
+            viewModel.TogglePlaybackCommand.Execute(null);
+            e.Handled = true;
+        }
+        else if (e.Key == Key.Home)
+        {
+            viewModel.RewindCommand.Execute(null);
+            e.Handled = true;
+        }
+        else if (e.Key == Key.Escape)
+        {
+            viewModel.EmergencyStopCommand.Execute(null);
+            e.Handled = true;
+        }
+    }
+
+    private void MainWindow_Opened(object? sender, EventArgs e)
+    {
+        if (DataContext is MainWindowViewModel viewModel)
+        {
+            viewModel.DirtyTabCloseRequested += OnDirtyTabCloseRequested;
+        }
+    }
+
+    private void MainWindow_Closed(object? sender, EventArgs e)
+    {
+        if (DataContext is MainWindowViewModel viewModel)
+        {
+            viewModel.DirtyTabCloseRequested -= OnDirtyTabCloseRequested;
+        }
+    }
+
+    private async void MainWindow_Closing(object? sender, WindowClosingEventArgs e)
+    {
+        if (_forceClose || DataContext is not MainWindowViewModel { HasUnsavedChanges: true } viewModel)
+        {
+            return;
+        }
+
+        e.Cancel = true;
+        if (_isCloseDialogOpen)
+        {
+            return;
+        }
+
+        _isCloseDialogOpen = true;
+        try
+        {
+            var dialog = new UnsavedChangesDialog("Existem projetos com alterações não salvas. Deseja salvá-los antes de sair?");
+            var choice = await dialog.ShowDialog<UnsavedChangesChoice>(this);
+            if (choice == UnsavedChangesChoice.Cancel)
+            {
+                return;
+            }
+
+            if (choice == UnsavedChangesChoice.Save && !await SaveAllDirtyProjects(viewModel))
+            {
+                return;
+            }
+
+            if (choice == UnsavedChangesChoice.Discard)
+            {
+                viewModel.DiscardRecoveryOnExit();
+            }
+
+            _forceClose = true;
+            Close();
+        }
+        finally
+        {
+            _isCloseDialogOpen = false;
+        }
+    }
+
+    private async void OnDirtyTabCloseRequested(ProjectTabViewModel tab)
+    {
+        if (_isCloseDialogOpen || DataContext is not MainWindowViewModel viewModel)
+        {
+            return;
+        }
+
+        _isCloseDialogOpen = true;
+        try
+        {
+            var dialog = new UnsavedChangesDialog($"O projeto ‘{tab.Name}’ possui alterações não salvas.");
+            var choice = await dialog.ShowDialog<UnsavedChangesChoice>(this);
+            if (choice == UnsavedChangesChoice.Cancel)
+            {
+                return;
+            }
+
+            if (choice == UnsavedChangesChoice.Save)
+            {
+                viewModel.ActiveProjectTab = tab;
+                if (!await SaveTab(viewModel, tab))
+                {
+                    return;
+                }
+            }
+
+            viewModel.DiscardAndCloseProjectTab(tab);
+        }
+        finally
+        {
+            _isCloseDialogOpen = false;
+        }
+    }
+
+    private async Task<bool> SaveAllDirtyProjects(MainWindowViewModel viewModel)
+    {
+        foreach (var tab in viewModel.ProjectTabs.Where(tab => tab.IsDirty).ToArray())
+        {
+            viewModel.ActiveProjectTab = tab;
+            if (!await SaveTab(viewModel, tab))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private async Task<bool> SaveTab(MainWindowViewModel viewModel, ProjectTabViewModel tab)
+    {
+        var path = tab.ProjectPath;
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            path = await PickSaveProjectPath(tab.Name);
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                return false;
+            }
+        }
+
+        viewModel.SaveProject(path);
+        return !tab.IsDirty;
     }
 
     private async void ImportTracksButton_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
@@ -39,7 +215,7 @@ public partial class MainWindow : Window
 
         if (DataContext is MainWindowViewModel viewModel)
         {
-            viewModel.ImportTracks(paths);
+            await viewModel.ImportTracksAsync(paths);
         }
     }
 
@@ -92,7 +268,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        var path = await PickSaveProjectPath();
+        var path = await PickSaveProjectPath(viewModel.ProjectName);
         if (!string.IsNullOrWhiteSpace(path))
         {
             viewModel.SaveProject(path);
@@ -106,19 +282,19 @@ public partial class MainWindow : Window
             return;
         }
 
-        var path = await PickSaveProjectPath();
+        var path = await PickSaveProjectPath(viewModel.ProjectName);
         if (!string.IsNullOrWhiteSpace(path))
         {
             viewModel.SaveProject(path);
         }
     }
 
-    private async Task<string?> PickSaveProjectPath()
+    private async Task<string?> PickSaveProjectPath(string suggestedName)
     {
         var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
         {
             Title = "Salvar projeto VSMixer",
-            SuggestedFileName = "Projeto.vsmixer",
+            SuggestedFileName = $"{suggestedName}.vsmixer",
             DefaultExtension = "vsmixer",
             FileTypeChoices =
             [

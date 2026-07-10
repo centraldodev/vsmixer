@@ -1,7 +1,5 @@
-using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
+using System.Globalization;
+using System.Text;
 using ManagedBass;
 using ManagedBass.Fx;
 
@@ -22,6 +20,8 @@ public sealed class BassAudioEngine : IAudioEngine
     private double _guideVoicePan;
     private int _selectedOutputDevice = -1;
     private int _activeOutputDevice = -1;
+    private bool _disposed;
+    private bool _streamsLinked;
 
     public bool IsReady { get; private set; }
     public string? LastError { get; private set; }
@@ -44,6 +44,7 @@ public sealed class BassAudioEngine : IAudioEngine
 
     public void Initialize()
     {
+        ObjectDisposedException.ThrowIf(_disposed, this);
         if (IsReady)
         {
             return;
@@ -71,7 +72,7 @@ public sealed class BassAudioEngine : IAudioEngine
     {
         var devices = new List<AudioDeviceOption>
         {
-            new(-1, "Padrao do sistema", true, true)
+            new(-1, "Padrão do sistema", true, true)
         };
 
         try
@@ -87,7 +88,7 @@ public sealed class BassAudioEngine : IAudioEngine
         }
         catch (Exception ex)
         {
-            devices.Add(new AudioDeviceOption(-999, $"Erro ao listar saidas: {ex.Message}", false, false));
+            devices.Add(new AudioDeviceOption(-999, $"Erro ao listar saídas: {ex.Message}", false, false));
         }
 
         return devices;
@@ -118,7 +119,7 @@ public sealed class BassAudioEngine : IAudioEngine
 
             if (!initialized)
             {
-                LastError = $"Nao foi possivel iniciar a saida selecionada: {Bass.LastError}";
+                LastError = $"Não foi possível iniciar a saída selecionada: {Bass.LastError}";
                 return false;
             }
 
@@ -146,7 +147,7 @@ public sealed class BassAudioEngine : IAudioEngine
 
             if (failed)
             {
-                LastError = $"Nao foi possivel mover todas as tracks para a saida selecionada: {Bass.LastError}";
+                LastError = $"Não foi possível mover todas as tracks para a saída selecionada: {Bass.LastError}";
                 return false;
             }
 
@@ -156,7 +157,7 @@ public sealed class BassAudioEngine : IAudioEngine
         }
         catch (Exception ex)
         {
-            LastError = $"Nao foi possivel trocar a saida de audio: {ex.Message}";
+            LastError = $"Não foi possível trocar a saída de áudio: {ex.Message}";
             return false;
         }
     }
@@ -216,6 +217,7 @@ public sealed class BassAudioEngine : IAudioEngine
             results.Add(new AudioTrackLoadResult(filePath, name, true, null));
         }
 
+        RelinkStreams();
         return results;
     }
 
@@ -257,7 +259,7 @@ public sealed class BassAudioEngine : IAudioEngine
         return summedPeaks;
     }
 
-    public int? DetectBpm()
+    public AudioTempoAnalysis? AnalyzeTempo()
     {
         Initialize();
         if (!IsReady || _filePaths.Count == 0)
@@ -267,14 +269,25 @@ public sealed class BassAudioEngine : IAudioEngine
 
         var candidates = _filePaths
             .Where(IsRhythmCandidate)
-            .DefaultIfEmpty(_filePaths[0])
-            .Take(3)
+            .Take(4)
             .ToArray();
 
+        if (candidates.Length == 0)
+        {
+            candidates = _filePaths
+                .Where(path => !IsGuideCandidate(path))
+                .Take(4)
+                .ToArray();
+        }
+
+        if (candidates.Length == 0)
+        {
+            candidates = _filePaths.Take(2).ToArray();
+        }
+
         var estimates = candidates
-            .Select(DetectBpmFromFile)
-            .Where(bpm => bpm is >= 50 and <= 240)
-            .Select(bpm => bpm!.Value)
+            .Select(AnalyzeTempoFromFile)
+            .OfType<AudioTempoAnalysis>()
             .ToArray();
 
         if (estimates.Length == 0)
@@ -282,13 +295,45 @@ public sealed class BassAudioEngine : IAudioEngine
             return null;
         }
 
-        return (int)Math.Round(estimates.Average());
+        var normalized = estimates
+            .Select(analysis => analysis with { Bpm = NormalizeBpm(analysis.Bpm) })
+            .OrderBy(analysis => analysis.Bpm)
+            .ToArray();
+        var medianBpm = normalized[normalized.Length / 2].Bpm;
+        var compatible = normalized
+            .Where(analysis => Math.Abs(analysis.Bpm - medianBpm) <= 4)
+            .ToArray();
+        if (compatible.Length == 0)
+        {
+            compatible = normalized;
+        }
+
+        var totalWeight = compatible.Sum(analysis => Math.Max(0.1, analysis.Confidence));
+        var bpm = compatible.Sum(analysis => analysis.Bpm * Math.Max(0.1, analysis.Confidence)) / totalWeight;
+        var reference = compatible
+            .OrderByDescending(analysis => analysis.Confidence)
+            .ThenBy(analysis => Math.Abs(analysis.Bpm - bpm))
+            .First();
+        var spread = compatible.Average(analysis => Math.Abs(analysis.Bpm - bpm));
+        var confidence = Math.Clamp(compatible.Average(analysis => analysis.Confidence) * (1 - spread / 8), 0, 1);
+
+        return new AudioTempoAnalysis(
+            Math.Round(bpm, 2),
+            Math.Round(reference.BeatGridOffsetSeconds, 3),
+            confidence,
+            reference.SourceTrack);
     }
 
     public void Play()
     {
         if (!IsReady)
         {
+            return;
+        }
+
+        if (_streamsLinked)
+        {
+            Bass.ChannelPlay(_streams[0], false);
             return;
         }
 
@@ -302,6 +347,12 @@ public sealed class BassAudioEngine : IAudioEngine
     {
         if (!IsReady)
         {
+            return;
+        }
+
+        if (_streamsLinked)
+        {
+            Bass.ChannelPause(_streams[0]);
             return;
         }
 
@@ -349,6 +400,7 @@ public sealed class BassAudioEngine : IAudioEngine
         Bass.StreamFree(_streams[trackIndex]);
         _streams.RemoveAt(trackIndex);
         _filePaths.RemoveAt(trackIndex);
+        RelinkStreams();
     }
 
     public void SetTrackState(int trackIndex, double volume, double pan, bool isMuted)
@@ -377,17 +429,6 @@ public sealed class BassAudioEngine : IAudioEngine
         var left = level & 0xffff;
         var right = (level >> 16) & 0xffff;
         return Math.Clamp(Math.Max(left, right) / 32768d, 0, 1);
-    }
-
-    public void SetMasterVolume(double volume)
-    {
-        Initialize();
-        if (!IsReady)
-        {
-            return;
-        }
-
-        Bass.GlobalStreamVolume = (int)(Math.Clamp(volume, 0, 1) * 10000);
     }
 
     public void SetTempo(double tempoRatio)
@@ -455,7 +496,7 @@ public sealed class BassAudioEngine : IAudioEngine
             return;
         }
 
-        var channel = Bass.SampleGetChannel(sample, true);
+        var channel = Bass.SampleGetChannel(sample, false);
         if (channel == 0)
         {
             return;
@@ -483,7 +524,7 @@ public sealed class BassAudioEngine : IAudioEngine
         _padStream = Bass.CreateStream(filePath, 0, 0, BassFlags.Loop | BassFlags.Float | BassFlags.Prescan);
         if (_padStream == 0)
         {
-            LastError = $"Nao foi possivel carregar o pad: {Bass.LastError}";
+            LastError = $"Não foi possível carregar o pad: {Bass.LastError}";
             return false;
         }
 
@@ -495,7 +536,7 @@ public sealed class BassAudioEngine : IAudioEngine
         Bass.ChannelSetAttribute(_padStream, ChannelAttribute.Volume, 0.65);
         if (!Bass.ChannelPlay(_padStream, true))
         {
-            LastError = $"Nao foi possivel tocar o pad: {Bass.LastError}";
+            LastError = $"Não foi possível tocar o pad: {Bass.LastError}";
             StopPad();
             return false;
         }
@@ -528,7 +569,7 @@ public sealed class BassAudioEngine : IAudioEngine
         _guideVoiceStream = Bass.CreateStream(filePath, 0, 0, BassFlags.Float | BassFlags.Prescan);
         if (_guideVoiceStream == 0)
         {
-            LastError = $"Nao foi possivel carregar a voz guia: {Bass.LastError}";
+            LastError = $"Não foi possível carregar a voz guia: {Bass.LastError}";
             return false;
         }
 
@@ -541,7 +582,7 @@ public sealed class BassAudioEngine : IAudioEngine
         Bass.ChannelSetAttribute(_guideVoiceStream, ChannelAttribute.Pan, _guideVoicePan);
         if (!Bass.ChannelPlay(_guideVoiceStream, true))
         {
-            LastError = $"Nao foi possivel tocar a voz guia: {Bass.LastError}";
+            LastError = $"Não foi possível tocar a voz guia: {Bass.LastError}";
             StopGuideVoice();
             return false;
         }
@@ -564,6 +605,7 @@ public sealed class BassAudioEngine : IAudioEngine
 
     private void FreeStreams()
     {
+        UnlinkStreams();
         foreach (var stream in _streams)
         {
             Bass.StreamFree(stream);
@@ -571,6 +613,77 @@ public sealed class BassAudioEngine : IAudioEngine
 
         _streams.Clear();
         _filePaths.Clear();
+    }
+
+    private void RelinkStreams()
+    {
+        UnlinkStreams();
+        if (_streams.Count < 2)
+        {
+            return;
+        }
+
+        var leader = _streams[0];
+        for (var i = 1; i < _streams.Count; i++)
+        {
+            if (Bass.ChannelSetLink(leader, _streams[i]))
+            {
+                continue;
+            }
+
+            UnlinkStreams();
+            return;
+        }
+
+        _streamsLinked = true;
+    }
+
+    private void UnlinkStreams()
+    {
+        _streamsLinked = false;
+        if (_streams.Count < 2)
+        {
+            return;
+        }
+
+        var leader = _streams[0];
+        for (var i = 1; i < _streams.Count; i++)
+        {
+            Bass.ChannelRemoveLink(leader, _streams[i]);
+        }
+    }
+
+    public void Dispose()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
+        StopGuideVoice();
+        StopPad();
+        FreeStreams();
+
+        if (_metronomeBeatSample != 0)
+        {
+            Bass.SampleFree(_metronomeBeatSample);
+            _metronomeBeatSample = 0;
+        }
+
+        if (_metronomeAccentSample != 0)
+        {
+            Bass.SampleFree(_metronomeAccentSample);
+            _metronomeAccentSample = 0;
+        }
+
+        if (IsReady)
+        {
+            Bass.Free();
+            IsReady = false;
+        }
+
+        GC.SuppressFinalize(this);
     }
 
     private static void SetStreamState(int stream, double volume, double pan, bool isMuted)
@@ -604,13 +717,19 @@ public sealed class BassAudioEngine : IAudioEngine
             data[i] = (float)(Math.Sin(2 * Math.PI * frequency * i / MetronomeSampleRate) * envelope * volume);
         }
 
-        var sample = Bass.CreateSample(data.Length * sizeof(float), MetronomeSampleRate, 1, 8, BassFlags.Float);
+        var sample = Bass.CreateSample(data.Length * sizeof(float), MetronomeSampleRate, 1, 32, BassFlags.Float);
         if (sample == 0)
         {
             return 0;
         }
 
-        return Bass.SampleSetData(sample, data) ? sample : 0;
+        if (Bass.SampleSetData(sample, data))
+        {
+            return sample;
+        }
+
+        Bass.SampleFree(sample);
+        return 0;
     }
 
     private void MoveMetronomeSamplesToDevice(int deviceId)
@@ -718,18 +837,210 @@ public sealed class BassAudioEngine : IAudioEngine
 
     private static bool IsRhythmCandidate(string filePath)
     {
-        var name = Path.GetFileNameWithoutExtension(filePath).ToLowerInvariant();
-        return name.Contains("drum", StringComparison.Ordinal)
-            || name.Contains("drums", StringComparison.Ordinal)
-            || name.Contains("drummer", StringComparison.Ordinal)
-            || name.Contains("bateria", StringComparison.Ordinal)
-            || name.Contains("click", StringComparison.Ordinal)
-            || name.Contains("metronome", StringComparison.Ordinal)
-            || name.Contains("metronomo", StringComparison.Ordinal)
-            || name.Contains("metrônomo", StringComparison.Ordinal);
+        var name = NormalizeTrackName(Path.GetFileNameWithoutExtension(filePath));
+        var tokens = name
+            .Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .ToHashSet(StringComparer.Ordinal);
+
+        if (tokens.Overlaps(RhythmKeywords))
+        {
+            return true;
+        }
+
+        return name.Contains("hi hat", StringComparison.Ordinal)
+            || name.Contains("hihat", StringComparison.Ordinal)
+            || name.Contains("drum loop", StringComparison.Ordinal)
+            || name.Contains("percussion loop", StringComparison.Ordinal)
+            || name.Contains("percussao loop", StringComparison.Ordinal);
     }
 
-    private static int? DetectBpmFromFile(string filePath)
+    private static bool IsGuideCandidate(string filePath)
+    {
+        var name = NormalizeTrackName(Path.GetFileNameWithoutExtension(filePath));
+        var tokens = name.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        return tokens.Any(token => token is "guia" or "guide" or "voz" or "voice" or "vocal" or "vocals");
+    }
+
+    private static readonly HashSet<string> RhythmKeywords = new(StringComparer.Ordinal)
+    {
+        "bateria",
+        "batera",
+        "batida",
+        "click",
+        "metronome",
+        "metronomo",
+        "drum",
+        "drums",
+        "drummer",
+        "beat",
+        "beats",
+        "percussion",
+        "percussao",
+        "perc",
+        "kick",
+        "bd",
+        "bumbo",
+        "snare",
+        "caixa",
+        "hat",
+        "hats",
+        "hihat",
+        "tom",
+        "toms",
+        "cymbal",
+        "cymbals",
+        "prato",
+        "pratos",
+        "overhead",
+        "overheads",
+        "oh",
+        "shaker",
+        "tambourine",
+        "tamborim",
+        "conga",
+        "congas",
+        "bongo",
+        "bongos"
+    };
+
+    private static string NormalizeTrackName(string value)
+    {
+        var normalized = value.Normalize(NormalizationForm.FormD);
+        var builder = new StringBuilder(normalized.Length);
+        var previousWasSeparator = false;
+
+        foreach (var character in normalized)
+        {
+            if (CharUnicodeInfo.GetUnicodeCategory(character) == UnicodeCategory.NonSpacingMark)
+            {
+                continue;
+            }
+
+            if (char.IsLetterOrDigit(character))
+            {
+                builder.Append(char.ToLowerInvariant(character));
+                previousWasSeparator = false;
+                continue;
+            }
+
+            if (!previousWasSeparator)
+            {
+                builder.Append(' ');
+                previousWasSeparator = true;
+            }
+        }
+
+        return builder.ToString().Trim();
+    }
+
+    private static AudioTempoAnalysis? AnalyzeTempoFromFile(string filePath)
+    {
+        return TryAnalyzeTempoWithBassFx(filePath) ?? AnalyzeTempoFallback(filePath);
+    }
+
+    private static AudioTempoAnalysis? TryAnalyzeTempoWithBassFx(string filePath)
+    {
+        var bpmDecoder = 0;
+        var beatDecoder = 0;
+        try
+        {
+            bpmDecoder = Bass.CreateStream(filePath, 0, 0, BassFlags.Decode | BassFlags.Float | BassFlags.Prescan);
+            if (bpmDecoder == 0)
+            {
+                return null;
+            }
+
+            var length = Bass.ChannelGetLength(bpmDecoder);
+            var duration = Math.Min(120, Math.Max(0, Bass.ChannelBytes2Seconds(bpmDecoder, length)));
+            if (duration < 8)
+            {
+                return null;
+            }
+
+            const int minimumBpm = 55;
+            const int maximumBpm = 220;
+            var minMaxBpm = minimumBpm | (maximumBpm << 16);
+            var bpm = BassFx.BPMDecodeGet(
+                bpmDecoder,
+                0,
+                duration,
+                minMaxBpm,
+                BassFlags.Default,
+                null,
+                IntPtr.Zero);
+            BassFx.BPMFree(bpmDecoder);
+            Bass.StreamFree(bpmDecoder);
+            bpmDecoder = 0;
+
+            if (!double.IsFinite(bpm) || bpm <= 0)
+            {
+                return null;
+            }
+
+            bpm = (float)NormalizeBpm(bpm);
+            beatDecoder = Bass.CreateStream(filePath, 0, 0, BassFlags.Decode | BassFlags.Float | BassFlags.Prescan);
+            if (beatDecoder == 0)
+            {
+                return null;
+            }
+
+            var beatPositions = new List<double>();
+            BPMBeatProcedure beatProcedure = (_, beatPosition, _) =>
+            {
+                if (double.IsFinite(beatPosition) && beatPosition >= 0)
+                {
+                    beatPositions.Add(beatPosition);
+                }
+            };
+            var detected = BassFx.BPMBeatDecodeGet(
+                beatDecoder,
+                0,
+                duration,
+                BassFlags.Default,
+                beatProcedure,
+                IntPtr.Zero);
+            BassFx.BPMBeatFree(beatDecoder);
+            Bass.StreamFree(beatDecoder);
+            beatDecoder = 0;
+
+            if (!detected || beatPositions.Count < 4)
+            {
+                var fallback = AnalyzeTempoFallback(filePath);
+                return new AudioTempoAnalysis(
+                    Math.Round(bpm, 2),
+                    fallback?.BeatGridOffsetSeconds ?? 0,
+                    Math.Max(0.55, fallback?.Confidence ?? 0),
+                    Path.GetFileNameWithoutExtension(filePath));
+            }
+
+            var (offset, gridConfidence) = EstimateBeatGrid(beatPositions, bpm);
+            return new AudioTempoAnalysis(
+                Math.Round(bpm, 2),
+                offset,
+                Math.Clamp(0.55 + gridConfidence * 0.4, 0, 0.95),
+                Path.GetFileNameWithoutExtension(filePath));
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+        finally
+        {
+            if (bpmDecoder != 0)
+            {
+                BassFx.BPMFree(bpmDecoder);
+                Bass.StreamFree(bpmDecoder);
+            }
+
+            if (beatDecoder != 0)
+            {
+                BassFx.BPMBeatFree(beatDecoder);
+                Bass.StreamFree(beatDecoder);
+            }
+        }
+    }
+
+    private static AudioTempoAnalysis? AnalyzeTempoFallback(string filePath)
     {
         var decoder = Bass.CreateStream(filePath, 0, 0, BassFlags.Decode | BassFlags.Float | BassFlags.Prescan);
         if (decoder == 0)
@@ -808,29 +1119,99 @@ public sealed class BassAudioEngine : IAudioEngine
                     continue;
                 }
 
-                var bpm = 60d / interval;
-                while (bpm < 70)
+                var candidateBpm = 60d / interval;
+                while (candidateBpm < 70)
                 {
-                    bpm *= 2;
+                    candidateBpm *= 2;
                 }
 
-                while (bpm > 190)
+                while (candidateBpm > 190)
                 {
-                    bpm /= 2;
+                    candidateBpm /= 2;
                 }
 
-                if (bpm is < 70 or > 190)
+                if (candidateBpm is < 70 or > 190)
                 {
                     continue;
                 }
 
-                var rounded = (int)Math.Round(bpm);
+                var rounded = (int)Math.Round(candidateBpm);
                 votes[rounded] = votes.TryGetValue(rounded, out var count) ? count + 1 : 1;
             }
         }
 
-        return votes.Count == 0
-            ? null
-            : votes.OrderByDescending(pair => pair.Value).ThenBy(pair => pair.Key).First().Key;
+        if (votes.Count == 0)
+        {
+            return null;
+        }
+
+        var winningVote = votes.OrderByDescending(pair => pair.Value).ThenBy(pair => pair.Key).First();
+        var bpm = NormalizeBpm(winningVote.Key);
+        var (offset, gridConfidence) = EstimateBeatGrid(peaks, bpm);
+        var voteConfidence = winningVote.Value / (double)Math.Max(1, votes.Values.Sum());
+        return new AudioTempoAnalysis(
+            Math.Round(bpm, 2),
+            offset,
+            Math.Clamp(0.25 + voteConfidence + gridConfidence * 0.3, 0, 0.75),
+            Path.GetFileNameWithoutExtension(filePath));
+    }
+
+    private static (double OffsetSeconds, double Confidence) EstimateBeatGrid(
+        IReadOnlyList<double> beatPositions,
+        double bpm)
+    {
+        if (beatPositions.Count == 0 || bpm <= 0)
+        {
+            return (0, 0);
+        }
+
+        var interval = 60d / bpm;
+        const int phaseBins = 96;
+        var histogram = new double[phaseBins];
+        foreach (var position in beatPositions)
+        {
+            var phase = PositiveModulo(position, interval) / interval;
+            var bin = Math.Clamp((int)Math.Round(phase * phaseBins) % phaseBins, 0, phaseBins - 1);
+            histogram[bin] += 1;
+            histogram[(bin + phaseBins - 1) % phaseBins] += 0.35;
+            histogram[(bin + 1) % phaseBins] += 0.35;
+        }
+
+        var winningBin = Array.IndexOf(histogram, histogram.Max());
+        var phaseSeconds = winningBin / (double)phaseBins * interval;
+        var tolerance = interval * 0.14;
+        var aligned = beatPositions
+            .Where(position => CircularDistance(PositiveModulo(position, interval), phaseSeconds, interval) <= tolerance)
+            .OrderBy(position => position)
+            .ToArray();
+        var offset = aligned.Length == 0 ? phaseSeconds : aligned[0];
+        var confidence = aligned.Length / (double)beatPositions.Count;
+        return (Math.Round(Math.Max(0, offset), 3), confidence);
+    }
+
+    private static double NormalizeBpm(double bpm)
+    {
+        while (bpm < 70)
+        {
+            bpm *= 2;
+        }
+
+        while (bpm > 190)
+        {
+            bpm /= 2;
+        }
+
+        return Math.Clamp(bpm, 50, 240);
+    }
+
+    private static double PositiveModulo(double value, double divisor)
+    {
+        return ((value % divisor) + divisor) % divisor;
+    }
+
+    private static double CircularDistance(double left, double right, double period)
+    {
+        var distance = Math.Abs(left - right);
+        return Math.Min(distance, period - distance);
     }
 }

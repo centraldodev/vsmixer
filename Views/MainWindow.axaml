@@ -7,38 +7,42 @@
         mc:Ignorable="d" d:DesignWidth="1600" d:DesignHeight="900"
         x:Class="VSMixer.Views.MainWindow"
         x:DataType="vm:MainWindowViewModel"
-        Icon="/Assets/avalonia-logo.ico"
+        Icon="/Assets/Brand/vsmixer-logo.png"
         Title="VSMixer"
         MinWidth="860"
-        MinHeight="540"
-        Background="#070b11">
+        MinHeight="680">
 
     <Design.DataContext>
         <vm:MainWindowViewModel/>
     </Design.DataContext>
 
+    <Window.Background>
+        <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
+            <GradientStop Color="#0c1420" Offset="0"/>
+            <GradientStop Color="#05080d" Offset="1"/>
+        </LinearGradientBrush>
+    </Window.Background>
+
     <Window.Resources>
         <StreamGeometry x:Key="IconPlay">M8,5 L19,12 L8,19 Z</StreamGeometry>
         <StreamGeometry x:Key="IconPause">M7,5 L11,5 L11,19 L7,19 Z M14,5 L18,5 L18,19 L14,19 Z</StreamGeometry>
         <StreamGeometry x:Key="IconRewind">M19,5 L10,12 L19,19 Z M9,5 L0,12 L9,19 Z</StreamGeometry>
-        <StreamGeometry x:Key="IconTrash">M7,7 L17,7 M10,7 L10,5 L14,5 L14,7 M9,10 L9,18 M12,10 L12,18 M15,10 L15,18 M8,7 L9,20 L15,20 L16,7</StreamGeometry>
-        <StreamGeometry x:Key="IconMute">M4,10 L8,10 L13,5 L13,19 L8,14 L4,14 Z M17,9 L22,14 M22,9 L17,14</StreamGeometry>
-        <StreamGeometry x:Key="IconSolo">M6,13 A6,6 0,0 1,18 13 M6,13 L6,18 L9,18 L9,12 L6,12 Z M15,12 L18,12 L18,18 L15,18 Z</StreamGeometry>
-        <StreamGeometry x:Key="IconVolume">M5,11 L9,11 L14,6 L14,18 L9,13 L5,13 Z</StreamGeometry>
-        <StreamGeometry x:Key="IconPan">M5,12 L19,12 M8,9 L5,12 L8,15 M16,9 L19,12 L16,15</StreamGeometry>
-        <StreamGeometry x:Key="IconMetronome">M8,21 L16,21 L14,7 L10,7 Z M12,7 L12,3 M9,15 L15,11 M7,21 L17,21</StreamGeometry>
-        <StreamGeometry x:Key="IconGuideVoice">M12,14 A3,3 0,0 0,15 11 L15,7 A3,3 0,0 0,9 7 L9,11 A3,3 0,0 0,12 14 M6,11 A6,6 0,0 0,18 11 M12,17 L12,21 M9,21 L15,21</StreamGeometry>
-        <StreamGeometry x:Key="IconPad">M4,8 L8,5 L12,8 L16,5 L20,8 L20,17 L4,17 Z M8,5 L8,17 M12,8 L12,17 M16,5 L16,17</StreamGeometry>
+        <StreamGeometry x:Key="IconTrash">M280-120q-33 0-56.5-23.5T200-200v-520q-17 0-28.5-11.5T160-760q0-17 11.5-28.5T200-800h160q0-17 11.5-28.5T400-840h160q17 0 28.5 11.5T600-800h160q17 0 28.5 11.5T800-760q0 17-11.5 28.5T760-720v520q0 33-23.5 56.5T680-120H280Zm400-600H280v520h400v-520ZM400-280q17 0 28.5-11.5T440-320v-280q0-17-11.5-28.5T400-640q-17 0-28.5 11.5T360-600v280q0 17 11.5 28.5T400-280Zm160 0q17 0 28.5-11.5T600-320v-280q0-17-11.5-28.5T560-640q-17 0-28.5 11.5T520-600v280q0 17 11.5 28.5T560-280ZM280-720v520-520Z</StreamGeometry>
+        <StreamGeometry x:Key="IconMetronome">M400-840q-17 0-28.5-11.5T360-880q0-17 11.5-28.5T400-920h160q17 0 28.5 11.5T600-880q0 17-11.5 28.5T560-840H400Zm80 440q17 0 28.5-11.5T520-440v-160q0-17-11.5-28.5T480-640q-17 0-28.5 11.5T440-600v160q0 17 11.5 28.5T480-400Zm0 320q-74 0-139.5-28.5T226-186q-49-49-77.5-114.5T120-440q0-74 28.5-139.5T226-694q49-49 114.5-77.5T480-800q62 0 119 20t107 58l28-28q11-11 28-11t28 11q11 11 11 28t-11 28l-28 28q38 50 58 107t20 119q0 74-28.5 139.5T734-186q-49 49-114.5 77.5T480-80Zm0-80q116 0 198-82t82-198q0-116-82-198t-198-82q-116 0-198 82t-82 198q0 116 82 198t198 82Zm0-280Z</StreamGeometry>
+        <StreamGeometry x:Key="IconGuideVoice">M480-400q-50 0-85-35t-35-85v-240q0-50 35-85t85-35q50 0 85 35t35 85v240q0 50-35 85t-85 35Zm0-240Zm-40 480v-83q-92-13-157.5-78T203-479q-2-17 9-29t28-12q17 0 28.5 11.5T284-480q14 70 69.5 115T480-320q72 0 127-45.5T676-480q4-17 15.5-28.5T720-520q17 0 28 12t9 29q-14 91-79 157t-158 79v83q0 17-11.5 28.5T480-120q-17 0-28.5-11.5T440-160Zm40-320q17 0 28.5-11.5T520-520v-240q0-17-11.5-28.5T480-800q-17 0-28.5 11.5T440-760v240q0 17 11.5 28.5T480-480Z</StreamGeometry>
+        <StreamGeometry x:Key="IconPad">M200-120q-33 0-56.5-23.5T120-200v-560q0-33 23.5-56.5T200-840h560q33 0 56.5 23.5T840-760v560q0 33-23.5 56.5T760-120H200Zm0-80h130v-180h-10q-17 0-28.5-11.5T280-420v-340h-80v560Zm430 0h130v-560h-80v340q0 17-11.5 28.5T640-380h-10v180Zm-240 0h180v-180h-10q-17 0-28.5-11.5T520-420v-340h-80v340q0 17-11.5 28.5T400-380h-10v180Z</StreamGeometry>
+        <StreamGeometry x:Key="IconChevronDown">M6,9 L12,15 L18,9</StreamGeometry>
+        <StreamGeometry x:Key="IconPlus">M12,5 L12,19 M5,12 L19,12</StreamGeometry>
     </Window.Resources>
 
     <Window.Styles>
         <!-- Base button: secondary/default look used everywhere unless overridden by a class -->
         <Style Selector="Button, ToggleButton">
-            <Setter Property="Background" Value="#131a25"/>
+            <Setter Property="Background" Value="#141b28"/>
             <Setter Property="Foreground" Value="#c9d7e6"/>
-            <Setter Property="BorderBrush" Value="#293a4d"/>
+            <Setter Property="BorderBrush" Value="#2a3c52"/>
             <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="CornerRadius" Value="8"/>
+            <Setter Property="CornerRadius" Value="10"/>
             <Setter Property="Padding" Value="14,8"/>
             <Setter Property="FontSize" Value="12"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
@@ -49,34 +53,40 @@
                 <Transitions>
                     <BrushTransition Property="Background" Duration="0:0:0.12"/>
                     <BrushTransition Property="BorderBrush" Duration="0:0:0.12"/>
+                    <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.1"/>
                 </Transitions>
             </Setter>
         </Style>
         <Style Selector="Button:pointerover, ToggleButton:pointerover">
-            <Setter Property="Background" Value="#1b2634"/>
-            <Setter Property="BorderBrush" Value="#3a4f68"/>
+            <Setter Property="Background" Value="#1c2836"/>
+            <Setter Property="BorderBrush" Value="#425a78"/>
         </Style>
         <Style Selector="Button:pressed, ToggleButton:pressed">
             <Setter Property="Opacity" Value="0.78"/>
+            <Setter Property="RenderTransform" Value="scale(0.97)"/>
         </Style>
         <Style Selector="Button:disabled, ToggleButton:disabled">
             <Setter Property="Opacity" Value="0.4"/>
         </Style>
         <Style Selector="ToggleButton:checked:not(.channel-toggle)">
-            <Setter Property="Background" Value="#2f6fed"/>
+            <Setter Property="Background" Value="#3b7bff"/>
             <Setter Property="Foreground" Value="White"/>
-            <Setter Property="BorderBrush" Value="#5c92ff"/>
+            <Setter Property="BorderBrush" Value="#6ea0ff"/>
         </Style>
 
         <!-- Primary: the one accent CTA per screen/section (Adicionar, Sessao, Fechar, etc.) -->
         <Style Selector="Button.primary">
-            <Setter Property="Background" Value="#2f6fed"/>
             <Setter Property="Foreground" Value="White"/>
-            <Setter Property="BorderBrush" Value="#5c92ff"/>
+            <Setter Property="BorderBrush" Value="#8fb0ff"/>
+            <Setter Property="Background">
+                <LinearGradientBrush StartPoint="0%,0%" EndPoint="100%,100%">
+                    <GradientStop Color="#3b7bff" Offset="0"/>
+                    <GradientStop Color="#7c5cff" Offset="1"/>
+                </LinearGradientBrush>
+            </Setter>
         </Style>
         <Style Selector="Button.primary:pointerover">
-            <Setter Property="Background" Value="#4a83ff"/>
-            <Setter Property="BorderBrush" Value="#7fabff"/>
+            <Setter Property="BorderBrush" Value="#aec4ff"/>
         </Style>
 
         <!-- Ghost: chromeless buttons for the top bar (MENU, +) -->
@@ -86,8 +96,8 @@
             <Setter Property="Foreground" Value="#8fa8c3"/>
         </Style>
         <Style Selector="Button.ghost:pointerover">
-            <Setter Property="Background" Value="#131a25"/>
-            <Setter Property="BorderBrush" Value="#293a4d"/>
+            <Setter Property="Background" Value="#141b28"/>
+            <Setter Property="BorderBrush" Value="#2a3c52"/>
         </Style>
 
         <!-- Icon-only square buttons -->
@@ -95,7 +105,9 @@
             <Setter Property="Width" Value="28"/>
             <Setter Property="Height" Value="28"/>
             <Setter Property="Padding" Value="0"/>
-            <Setter Property="CornerRadius" Value="8"/>
+            <Setter Property="CornerRadius" Value="9"/>
+            <Setter Property="HorizontalContentAlignment" Value="Center"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
         </Style>
 
         <!-- Mini square buttons: stepper (-/+) and flyout chevrons -->
@@ -104,29 +116,59 @@
             <Setter Property="Height" Value="24"/>
             <Setter Property="Padding" Value="0"/>
             <Setter Property="FontSize" Value="13"/>
-            <Setter Property="CornerRadius" Value="6"/>
+            <Setter Property="CornerRadius" Value="7"/>
+            <Setter Property="HorizontalContentAlignment" Value="Center"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
         </Style>
 
         <!-- Transport play/pause -->
         <Style Selector="Button.transport-play">
-            <Setter Property="Width" Value="36"/>
-            <Setter Property="Height" Value="36"/>
-            <Setter Property="CornerRadius" Value="18"/>
-            <Setter Property="Background" Value="#2f6fed"/>
-            <Setter Property="BorderBrush" Value="#5c92ff"/>
+            <Setter Property="Width" Value="38"/>
+            <Setter Property="Height" Value="38"/>
+            <Setter Property="CornerRadius" Value="19"/>
+            <Setter Property="BorderBrush" Value="#8fb0ff"/>
+            <Setter Property="Background">
+                <LinearGradientBrush StartPoint="0%,0%" EndPoint="100%,100%">
+                    <GradientStop Color="#3b7bff" Offset="0"/>
+                    <GradientStop Color="#7c5cff" Offset="1"/>
+                </LinearGradientBrush>
+            </Setter>
         </Style>
         <Style Selector="Button.transport-play:pointerover">
-            <Setter Property="Background" Value="#4a83ff"/>
-            <Setter Property="BorderBrush" Value="#7fabff"/>
+            <Setter Property="BorderBrush" Value="#aec4ff"/>
         </Style>
 
         <!-- Project tabs -->
+        <Style Selector="Border.project-tab">
+            <Setter Property="Background" Value="#131b28"/>
+            <Setter Property="BorderBrush" Value="#28394d"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="10"/>
+            <Setter Property="Transitions">
+                <Transitions>
+                    <BrushTransition Property="Background" Duration="0:0:0.12"/>
+                    <BrushTransition Property="BorderBrush" Duration="0:0:0.12"/>
+                </Transitions>
+            </Setter>
+        </Style>
+        <Style Selector="Border.project-tab.active">
+            <Setter Property="BorderBrush" Value="#5c92ff"/>
+            <Setter Property="Background">
+                <LinearGradientBrush StartPoint="0%,0%" EndPoint="100%,100%">
+                    <GradientStop Color="#1d3a66" Offset="0"/>
+                    <GradientStop Color="#2c2559" Offset="1"/>
+                </LinearGradientBrush>
+            </Setter>
+        </Style>
         <Style Selector="Button.tab">
             <Setter Property="Background" Value="Transparent"/>
             <Setter Property="BorderThickness" Value="0"/>
-            <Setter Property="Foreground" Value="#6fa2ff"/>
+            <Setter Property="Foreground" Value="#7fa4ea"/>
             <Setter Property="Padding" Value="10,6"/>
             <Setter Property="FontSize" Value="12"/>
+        </Style>
+        <Style Selector="Border.project-tab.active Button.tab">
+            <Setter Property="Foreground" Value="#e7edff"/>
         </Style>
         <Style Selector="Button.tab:pointerover">
             <Setter Property="Background" Value="Transparent"/>
@@ -140,7 +182,7 @@
             <Setter Property="FontSize" Value="11"/>
             <Setter Property="Width" Value="22"/>
             <Setter Property="Height" Value="22"/>
-            <Setter Property="CornerRadius" Value="5"/>
+            <Setter Property="CornerRadius" Value="6"/>
         </Style>
         <Style Selector="Button.tab-close:pointerover">
             <Setter Property="Background" Value="#2a1319"/>
@@ -148,76 +190,187 @@
             <Setter Property="BorderBrush" Value="Transparent"/>
         </Style>
 
+        <Style Selector="Border.track-strip">
+            <Setter Property="Background">
+                <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
+                    <GradientStop Color="#142131" Offset="0"/>
+                    <GradientStop Color="#0d1723" Offset="1"/>
+                </LinearGradientBrush>
+            </Setter>
+            <Setter Property="BorderBrush" Value="#2c415a"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="8"/>
+            <Setter Property="BoxShadow" Value="0 8 24 0 #30000000"/>
+        </Style>
+
+        <Style Selector="Border.track-strip:pointerover">
+            <Setter Property="BorderBrush" Value="#3d5f83"/>
+        </Style>
+
         <Style Selector="TextBox.top-input">
             <Setter Property="Width" Value="58"/>
             <Setter Property="Height" Value="30"/>
-            <Setter Property="Padding" Value="6,3"/>
+            <Setter Property="MinHeight" Value="30"/>
+            <Setter Property="Padding" Value="6,0"/>
             <Setter Property="TextAlignment" Value="Center"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="HorizontalContentAlignment" Value="Center"/>
             <Setter Property="FontWeight" Value="Bold"/>
         </Style>
 
-        <!-- Channel strip Mute/Solo: DAW-standard red/yellow feedback when active.
+        <Style Selector="ComboBox.top-control">
+            <Setter Property="Height" Value="34"/>
+            <Setter Property="MinHeight" Value="34"/>
+            <Setter Property="Padding" Value="8,3"/>
+            <Setter Property="HorizontalContentAlignment" Value="Center"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+        </Style>
+
+        <!-- Line-style icon rendering: stroke, rounded caps/joins, transparent fill by default.
+             Icons that have an explicit Fill set render as filled + stroked ("duotone"). -->
+        <Style Selector="Path.icon">
+            <Setter Property="Stretch" Value="Uniform"/>
+            <Setter Property="StrokeThickness" Value="1.6"/>
+            <Setter Property="StrokeLineCap" Value="Round"/>
+            <Setter Property="StrokeJoin" Value="Round"/>
+        </Style>
+
+        <!-- Channel strip Mute/Solo/Master A-B: DAW-standard feedback when active.
              FluentTheme's default ToggleButton template paints :checked with the
              system accent color regardless of Background, so this uses a plain
              Border template to make Background/BorderBrush setters actually apply. -->
         <Style Selector="ToggleButton.channel-toggle">
-            <Setter Property="Height" Value="26"/>
+            <Setter Property="Height" Value="27"/>
             <Setter Property="Padding" Value="0"/>
             <Setter Property="CornerRadius" Value="7"/>
-            <Setter Property="Background" Value="#0b111a"/>
+            <Setter Property="Background" Value="#0c131e"/>
+            <Setter Property="BorderBrush" Value="#223144"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Foreground" Value="#8195ac"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="FontSize" Value="12"/>
             <Setter Property="Template">
                 <ControlTemplate>
                     <Border Background="{TemplateBinding Background}"
                             BorderBrush="{TemplateBinding BorderBrush}"
                             BorderThickness="{TemplateBinding BorderThickness}"
-                            CornerRadius="{TemplateBinding CornerRadius}">
+                            CornerRadius="{TemplateBinding CornerRadius}"
+                            Transitions="{TemplateBinding Transitions}">
                         <ContentPresenter Content="{TemplateBinding Content}"
+                                          Foreground="{TemplateBinding Foreground}"
                                           HorizontalAlignment="Center"
                                           VerticalAlignment="Center"/>
                     </Border>
                 </ControlTemplate>
             </Setter>
+            <Setter Property="Transitions">
+                <Transitions>
+                    <BrushTransition Property="Background" Duration="0:0:0.12"/>
+                    <BrushTransition Property="BorderBrush" Duration="0:0:0.12"/>
+                </Transitions>
+            </Setter>
+        </Style>
+        <Style Selector="ToggleButton.channel-toggle:pointerover">
+            <Setter Property="Background" Value="#142233"/>
+            <Setter Property="BorderBrush" Value="#37536f"/>
+            <Setter Property="Foreground" Value="#c3d4e6"/>
+        </Style>
+        <Style Selector="ToggleButton.strip-action-toggle">
+            <Setter Property="Height" Value="45"/>
+            <Setter Property="MinWidth" Value="45"/>
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="CornerRadius" Value="8"/>
+            <Setter Property="Background" Value="#0e1b2a"/>
+            <Setter Property="BorderBrush" Value="#29405a"/>
+            <Setter Property="Foreground" Value="#a7b7ca"/>
+        </Style>
+        <Style Selector="ToggleButton.bus-toggle">
+            <Setter Property="Height" Value="41"/>
+            <Setter Property="MinWidth" Value="41"/>
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="CornerRadius" Value="8"/>
+            <Setter Property="Background" Value="#0e1b2a"/>
+            <Setter Property="BorderBrush" Value="#29405a"/>
+            <Setter Property="Foreground" Value="#a7b7ca"/>
+        </Style>
+        <Style Selector="Button.track-delete-button">
+            <Setter Property="Width" Value="24"/>
+            <Setter Property="Height" Value="24"/>
+            <Setter Property="MinWidth" Value="24"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="CornerRadius" Value="7"/>
+            <Setter Property="Background" Value="#0e1b2a"/>
+            <Setter Property="BorderBrush" Value="#29405a"/>
+            <Setter Property="HorizontalContentAlignment" Value="Center"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+        </Style>
+        <Style Selector="Button.track-delete-button:pointerover">
+            <Setter Property="Background" Value="#2a1319"/>
+            <Setter Property="BorderBrush" Value="#7c3037"/>
         </Style>
         <Style Selector="ToggleButton.mute-toggle:checked">
             <Setter Property="Background" Value="#e5484d"/>
             <Setter Property="BorderBrush" Value="#ff7a7f"/>
+            <Setter Property="Foreground" Value="White"/>
         </Style>
         <Style Selector="ToggleButton.solo-toggle:checked">
             <Setter Property="Background" Value="#e6b800"/>
             <Setter Property="BorderBrush" Value="#ffd23f"/>
+            <Setter Property="Foreground" Value="#1a1400"/>
+        </Style>
+        <Style Selector="ToggleButton.master-a-toggle:checked">
+            <Setter Property="Background" Value="#1fae97"/>
+            <Setter Property="BorderBrush" Value="#63dcca"/>
+            <Setter Property="Foreground" Value="White"/>
+        </Style>
+        <Style Selector="ToggleButton.master-b-toggle:checked">
+            <Setter Property="Background" Value="#8a63ec"/>
+            <Setter Property="BorderBrush" Value="#c3aaff"/>
+            <Setter Property="Foreground" Value="White"/>
         </Style>
 
-        <Style Selector="Slider.volume-slider">
-            <Setter Property="Foreground" Value="#2f7dff"/>
-            <Setter Property="Background" Value="#1d2a38"/>
-        </Style>
-        <Style Selector="Slider.pan-slider">
+        <Style Selector="Slider.master-a-slider">
             <Setter Property="Foreground" Value="#21c2a8"/>
-            <Setter Property="Background" Value="#22313d"/>
+            <Setter Property="Background" Value="#173330"/>
+            <Setter Property="MinHeight" Value="32"/>
+        </Style>
+        <Style Selector="Slider.master-b-slider">
+            <Setter Property="Foreground" Value="#9d71ff"/>
+            <Setter Property="Background" Value="#241d3d"/>
+            <Setter Property="MinHeight" Value="32"/>
         </Style>
         <Style Selector="TextBox, NumericUpDown, ComboBox">
             <Setter Property="Background" Value="#111823"/>
             <Setter Property="Foreground" Value="#f6fbff"/>
-            <Setter Property="BorderBrush" Value="#253244"/>
-            <Setter Property="CornerRadius" Value="8"/>
+            <Setter Property="BorderBrush" Value="#28394d"/>
+            <Setter Property="CornerRadius" Value="10"/>
+        </Style>
+
+        <!-- Reusable elevated surface for pill-style stat/badge containers -->
+        <Style Selector="Border.stat-pill">
+            <Setter Property="Background" Value="#131b28"/>
+            <Setter Property="BorderBrush" Value="#28394d"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="10"/>
+            <Setter Property="Padding" Value="10,4"/>
         </Style>
     </Window.Styles>
 
-    <Grid RowDefinitions="38,58,152,*,42">
-        <Border Grid.Row="0" Background="#080d14" BorderBrush="#162231" BorderThickness="0,0,0,1">
-            <Grid ColumnDefinitions="42,112,*,38" Margin="5,0">
+    <Grid RowDefinitions="40,60,152,*,56">
+        <Border Grid.Row="0" Background="#0a0f18" BorderBrush="#1a2635" BorderThickness="0,0,0,1">
+            <Grid ColumnDefinitions="42,112,*,38" Margin="6,0">
                 <Button Grid.Column="0" Classes="ghost" Width="42" Height="30" Padding="0" Content="MENU" FontSize="10" FontWeight="Bold">
                     <Button.Flyout>
                         <MenuFlyout>
                             <MenuItem Header="Abrir projeto" Click="OpenProjectMenuItem_Click"/>
                             <MenuItem Header="Salvar" Click="SaveProjectMenuItem_Click"/>
                             <MenuItem Header="Salvar como" Click="SaveProjectAsMenuItem_Click"/>
-                            <MenuItem Header="Configuracao de audio" Command="{Binding OpenAudioSettingsModalCommand}"/>
+                            <MenuItem Header="Configuração de áudio" Command="{Binding OpenAudioSettingsModalCommand}"/>
                         </MenuFlyout>
                     </Button.Flyout>
                 </Button>
-                <TextBlock Grid.Column="1" Text="PROJETOS" Foreground="#8fa8c3" FontWeight="Bold" FontSize="12" VerticalAlignment="Center"/>
-                <ScrollViewer Grid.Column="2" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled" Margin="0,4">
+                <TextBlock Grid.Column="1" Text="PROJETOS" Foreground="#6f88a3" FontWeight="Bold" FontSize="11" LetterSpacing="1" VerticalAlignment="Center"/>
+                <ScrollViewer Grid.Column="2" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled" Margin="0,5">
                     <ItemsControl ItemsSource="{Binding ProjectTabs}">
                         <ItemsControl.ItemsPanel>
                             <ItemsPanelTemplate>
@@ -226,7 +379,7 @@
                         </ItemsControl.ItemsPanel>
                         <ItemsControl.ItemTemplate>
                             <DataTemplate x:DataType="vm:ProjectTabViewModel">
-                                <Border Background="#111823" BorderBrush="#253244" BorderThickness="1" CornerRadius="8">
+                                <Border Classes="project-tab" Classes.active="{Binding IsActive}">
                                     <Grid ColumnDefinitions="*,22">
                                         <Button Classes="tab"
                                                 Content="{Binding DisplayName}"
@@ -244,69 +397,82 @@
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
                 </ScrollViewer>
-                <Button Grid.Column="3" Classes="icon-button ghost" Content="+" FontSize="16" FontWeight="Bold" Command="{Binding NewProjectTabCommand}" ToolTip.Tip="Novo projeto"/>
+                <Button Grid.Column="3" Classes="icon-button ghost" Command="{Binding NewProjectTabCommand}" ToolTip.Tip="Novo projeto">
+                    <Path Classes="icon" Data="{StaticResource IconPlus}" Stroke="#8fa8c3" Width="14" Height="14"/>
+                </Button>
             </Grid>
         </Border>
 
-        <Border Grid.Row="1" Background="#060b12" BorderBrush="#172334" BorderThickness="0,0,0,1">
-            <Grid ColumnDefinitions="46,34,Auto,Auto,Auto,*,Auto,Auto,Auto,Auto,Auto,Auto,Auto" Margin="10,8" ColumnSpacing="10">
-                <Button Grid.Column="0" Classes="transport-play" Command="{Binding TogglePlaybackCommand}" ToolTip.Tip="{Binding PlayPauseText}">
-                    <Grid Width="18" Height="18">
-                        <PathIcon Data="{StaticResource IconPlay}" Foreground="White" Width="18" Height="18" IsVisible="{Binding IsNotPlaying}"/>
-                        <PathIcon Data="{StaticResource IconPause}" Foreground="White" Width="18" Height="18" IsVisible="{Binding IsPlaying}"/>
-                    </Grid>
-                </Button>
-                <Button Grid.Column="1" Classes="icon-button" Command="{Binding RewindCommand}" ToolTip.Tip="Voltar">
-                    <PathIcon Data="{StaticResource IconRewind}" Foreground="#dbe7f5" Width="16" Height="16"/>
-                </Button>
+        <Border Grid.Row="1" Background="#070c14" BorderBrush="#182233" BorderThickness="0,0,0,1">
+            <Grid ColumnDefinitions="48,34,Auto,Auto,Auto,*,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" Margin="10,8" ColumnSpacing="10">
+                <Grid Grid.Column="0">
+                    <Button Classes="transport-play" Command="{Binding TogglePlaybackCommand}" ToolTip.Tip="Play/Pausa (Espaço)" AutomationProperties.Name="Play ou pausa" IsVisible="{Binding IsNotMidiMappingEditMode}">
+                        <Grid Width="18" Height="18" HorizontalAlignment="Center" VerticalAlignment="Center">
+                            <PathIcon Data="{StaticResource IconPlay}" Foreground="White" Width="18" Height="18" IsVisible="{Binding IsNotPlaying}"/>
+                            <PathIcon Data="{StaticResource IconPause}" Foreground="White" Width="18" Height="18" IsVisible="{Binding IsPlaying}"/>
+                        </Grid>
+                    </Button>
+                    <Button Classes="transport-play" Command="{Binding OpenMidiMappingModalCommand}" CommandParameter="Play" ToolTip.Tip="{Binding PlayMidiMappingLabel}" IsVisible="{Binding IsMidiMappingEditMode}">
+                        <TextBlock Text="M" Foreground="White" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Button>
+                </Grid>
+                <Grid Grid.Column="1">
+                    <Button Classes="icon-button" Command="{Binding RewindCommand}" ToolTip.Tip="Voltar ao início (Home)" AutomationProperties.Name="Voltar ao início" IsVisible="{Binding IsNotMidiMappingEditMode}">
+                        <PathIcon Data="{StaticResource IconRewind}" Foreground="#dbe7f5" Width="16" Height="16" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Button>
+                    <Button Classes="icon-button" Command="{Binding OpenMidiMappingModalCommand}" CommandParameter="Rewind" ToolTip.Tip="{Binding RewindMidiMappingLabel}" IsVisible="{Binding IsMidiMappingEditMode}">
+                        <TextBlock Text="M" Foreground="#dbe7f5" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Button>
+                </Grid>
                 <StackPanel Grid.Column="2">
-                    <TextBlock Text="TIMER" Foreground="#778ba2" FontSize="9" FontWeight="Bold"/>
+                    <TextBlock Text="TIMER" Foreground="#69809a" FontSize="9" FontWeight="Bold" LetterSpacing="0.5"/>
                     <TextBlock Text="{Binding CurrentTime}" Foreground="White" FontSize="17" FontWeight="Bold"/>
                 </StackPanel>
                 <StackPanel Grid.Column="3">
-                    <TextBlock Text="COMPASSO" Foreground="#778ba2" FontSize="9" FontWeight="Bold"/>
+                    <TextBlock Text="COMPASSO" Foreground="#69809a" FontSize="9" FontWeight="Bold" LetterSpacing="0.5"/>
                     <TextBlock Text="{Binding BarClock}" Foreground="White" FontSize="17" FontWeight="Bold"/>
                 </StackPanel>
-                <Border Grid.Column="4" Background="#121924" BorderBrush="#253244" BorderThickness="1" CornerRadius="8" Padding="10,4" VerticalAlignment="Center">
+                <Border Grid.Column="4" Classes="stat-pill" VerticalAlignment="Center">
                     <Grid ColumnDefinitions="Auto,58" ColumnSpacing="8" VerticalAlignment="Center">
                         <TextBlock Text="DETECTADO" Foreground="#7f92aa" FontSize="10" FontWeight="Bold" VerticalAlignment="Center"/>
                         <TextBox Grid.Column="1" Classes="top-input" Text="{Binding DetectedBpmText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
                     </Grid>
                 </Border>
-                <Border Grid.Column="6" Background="#121924" BorderBrush="#253244" BorderThickness="1" CornerRadius="8" Padding="10,4" VerticalAlignment="Center">
+                <Border Grid.Column="6" Classes="stat-pill" VerticalAlignment="Center">
                     <Grid ColumnDefinitions="Auto,58" ColumnSpacing="8" VerticalAlignment="Center">
                         <TextBlock Text="BPM" Foreground="#8295aa" FontSize="10" FontWeight="Bold" VerticalAlignment="Center"/>
                         <TextBox Grid.Column="1" Classes="top-input" Text="{Binding PlaybackBpmText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
                     </Grid>
                 </Border>
-                <Border Grid.Column="7" Background="#121924" BorderBrush="#253244" BorderThickness="1" CornerRadius="8" Padding="10,4" VerticalAlignment="Center">
-                    <Grid ColumnDefinitions="Auto,64" ColumnSpacing="8" VerticalAlignment="Center">
+                <Border Grid.Column="7" Classes="stat-pill" VerticalAlignment="Center">
+                    <Grid ColumnDefinitions="Auto,70" ColumnSpacing="8" VerticalAlignment="Center">
                         <TextBlock Text="COMPASSO" Foreground="#8295aa" FontSize="10" FontWeight="Bold" VerticalAlignment="Center"/>
-                        <ComboBox Grid.Column="1" ItemsSource="{Binding TimeSignatures}" SelectedItem="{Binding SelectedTimeSignature}" Width="64" Height="30"/>
+                        <ComboBox Grid.Column="1" Classes="top-control" ItemsSource="{Binding TimeSignatures}" SelectedItem="{Binding SelectedTimeSignature}" Width="70"/>
                     </Grid>
                 </Border>
-                <Border Grid.Column="8" Background="#121924" BorderBrush="#253244" BorderThickness="1" CornerRadius="8" Padding="10,4" VerticalAlignment="Center">
-                    <Grid ColumnDefinitions="Auto,64" ColumnSpacing="8" VerticalAlignment="Center">
+                <Border Grid.Column="8" Classes="stat-pill" VerticalAlignment="Center">
+                    <Grid ColumnDefinitions="Auto,70" ColumnSpacing="8" VerticalAlignment="Center">
                         <TextBlock Text="GRADE" Foreground="#8295aa" FontSize="10" FontWeight="Bold" VerticalAlignment="Center"/>
-                        <ComboBox Grid.Column="1" ItemsSource="{Binding GridOptions}" SelectedItem="{Binding SelectedGrid}" Width="64" Height="30"/>
+                        <ComboBox Grid.Column="1" Classes="top-control" ItemsSource="{Binding GridOptions}" SelectedItem="{Binding SelectedGrid}" Width="70"/>
                     </Grid>
                 </Border>
-                <Border Grid.Column="9" Background="#121924" BorderBrush="#253244" BorderThickness="1" CornerRadius="8" Padding="8,4" VerticalAlignment="Center">
-                    <StackPanel Orientation="Horizontal" Spacing="6">
+                <Border Grid.Column="9" Classes="stat-pill" Padding="8,4" VerticalAlignment="Center">
+                        <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
                         <Button Classes="mini" Command="{Binding ChangePitchCommand}" CommandParameter="-1" Content="-"/>
                         <TextBlock Text="{Binding PitchOffset, StringFormat='{}{0} st'}" Foreground="White" FontWeight="Bold" VerticalAlignment="Center"/>
                         <Button Classes="mini" Command="{Binding ChangePitchCommand}" CommandParameter="1" Content="+"/>
                     </StackPanel>
                 </Border>
-                <Border Grid.Column="10" Background="#121924" BorderBrush="#253244" BorderThickness="1" CornerRadius="8" Padding="3" VerticalAlignment="Center">
+                <Border Grid.Column="10" Classes="stat-pill" Padding="3" VerticalAlignment="Center">
                     <Grid ColumnDefinitions="28,24" ColumnSpacing="4">
-                        <ToggleButton Classes="icon-button" IsChecked="{Binding MetronomeEnabled}" ToolTip.Tip="Metronomo">
-                            <PathIcon Data="{StaticResource IconMetronome}" Foreground="#dbe7f5" Width="17" Height="17"/>
+                        <ToggleButton Classes="icon-button" IsChecked="{Binding MetronomeEnabled}" ToolTip.Tip="Metrônomo">
+                            <Path Classes="icon" Data="{StaticResource IconMetronome}" Fill="#dbe7f5" Width="18" Height="18" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </ToggleButton>
-                        <Button Grid.Column="1" Classes="mini" Content="v" ToolTip.Tip="Controles do metronomo">
+                        <Button Grid.Column="1" Classes="mini" ToolTip.Tip="Controles do metrônomo">
+                            <Path Classes="icon" Data="{StaticResource IconChevronDown}" Stroke="#8fa8c3" StrokeThickness="1.8" Width="10" Height="10" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                             <Button.Flyout>
                                 <Flyout>
-                                    <Border Width="220" Background="#101823" BorderBrush="#2e4056" BorderThickness="1" CornerRadius="8" Padding="12">
+                                    <Border Width="220" Background="#101823" BorderBrush="#2e4056" BorderThickness="1" CornerRadius="12" Padding="12">
                                         <Grid RowDefinitions="Auto,Auto" RowSpacing="10">
                                             <Grid ColumnDefinitions="42,*" ColumnSpacing="10">
                                                 <TextBlock Text="VOL" Foreground="#91a7bf" FontWeight="Bold" FontSize="11" VerticalAlignment="Center"/>
@@ -323,15 +489,16 @@
                         </Button>
                     </Grid>
                 </Border>
-                <Border Grid.Column="11" Background="#121924" BorderBrush="#253244" BorderThickness="1" CornerRadius="8" Padding="3" VerticalAlignment="Center">
+                <Border Grid.Column="11" Classes="stat-pill" Padding="3" VerticalAlignment="Center">
                     <Grid ColumnDefinitions="28,24" ColumnSpacing="4">
                         <ToggleButton Classes="icon-button" IsChecked="{Binding GuideVoiceEnabled}" ToolTip.Tip="Voz guia">
-                            <PathIcon Data="{StaticResource IconGuideVoice}" Foreground="#dbe7f5" Width="17" Height="17"/>
+                            <Path Classes="icon" Data="{StaticResource IconGuideVoice}" Fill="#dbe7f5" Width="18" Height="18" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </ToggleButton>
-                        <Button Grid.Column="1" Classes="mini" Content="v" ToolTip.Tip="Controles da voz guia">
+                        <Button Grid.Column="1" Classes="mini" ToolTip.Tip="Controles da voz guia">
+                            <Path Classes="icon" Data="{StaticResource IconChevronDown}" Stroke="#8fa8c3" StrokeThickness="1.8" Width="10" Height="10" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                             <Button.Flyout>
                                 <Flyout>
-                                    <Border Width="220" Background="#101823" BorderBrush="#2e4056" BorderThickness="1" CornerRadius="8" Padding="12">
+                                    <Border Width="220" Background="#101823" BorderBrush="#2e4056" BorderThickness="1" CornerRadius="12" Padding="12">
                                         <Grid RowDefinitions="Auto,Auto" RowSpacing="10">
                                             <Grid ColumnDefinitions="42,*" ColumnSpacing="10">
                                                 <TextBlock Text="VOL" Foreground="#91a7bf" FontWeight="Bold" FontSize="11" VerticalAlignment="Center"/>
@@ -348,18 +515,39 @@
                         </Button>
                     </Grid>
                 </Border>
-                <Border Grid.Column="12" Background="#121924" BorderBrush="#253244" BorderThickness="1" CornerRadius="8" Padding="4" VerticalAlignment="Center">
+                <Border Grid.Column="12" Classes="stat-pill" Padding="4" VerticalAlignment="Center">
                     <Grid ColumnDefinitions="34,*" ColumnSpacing="6" VerticalAlignment="Center">
-                        <ToggleButton Classes="icon-button" IsChecked="{Binding PadContinuousEnabled}" ToolTip.Tip="Pad continuo">
-                            <PathIcon Data="{StaticResource IconPad}" Foreground="#dbe7f5" Width="17" Height="17"/>
+                        <ToggleButton Classes="icon-button" IsChecked="{Binding PadContinuousEnabled}" ToolTip.Tip="Pad contínuo">
+                            <Path Classes="icon" Data="{StaticResource IconPad}" Fill="#dbe7f5" Width="18" Height="18" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </ToggleButton>
-                        <ComboBox Grid.Column="1" ItemsSource="{Binding PadNotes}" SelectedItem="{Binding SelectedPadNote}" Width="78" Height="30"/>
+                        <ComboBox Grid.Column="1" Classes="top-control" ItemsSource="{Binding PadNotes}" SelectedItem="{Binding SelectedPadNote}" Width="78"/>
+                    </Grid>
+                </Border>
+                <Border Grid.Column="13" Classes="stat-pill" Padding="3" VerticalAlignment="Center">
+                    <Grid ColumnDefinitions="28,24" ColumnSpacing="4">
+                        <ToggleButton Classes="icon-button" IsChecked="{Binding PreCountEnabled}" ToolTip.Tip="Pré-contagem ao iniciar do começo">
+                            <TextBlock Text="PRÉ" FontSize="8" FontWeight="Bold" Foreground="#dbe7f5" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </ToggleButton>
+                        <Button Grid.Column="1" Classes="mini" ToolTip.Tip="Compassos de pré-contagem">
+                            <Path Classes="icon" Data="{StaticResource IconChevronDown}" Stroke="#8fa8c3" StrokeThickness="1.8" Width="10" Height="10" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            <Button.Flyout>
+                                <Flyout>
+                                    <Border Width="220" Background="#101823" BorderBrush="#2e4056" BorderThickness="1" CornerRadius="12" Padding="12">
+                                        <StackPanel Spacing="8">
+                                            <TextBlock Text="Compassos de pré-contagem" Foreground="#91a7bf" FontWeight="Bold" FontSize="11"/>
+                                            <NumericUpDown Minimum="1" Maximum="4" Value="{Binding PreCountMeasures}"/>
+                                            <TextBlock Text="Toca antes de iniciar do compasso 1 e das sessões com pré-contagem marcada." Foreground="#6f88a3" FontSize="10" TextWrapping="Wrap"/>
+                                        </StackPanel>
+                                    </Border>
+                                </Flyout>
+                            </Button.Flyout>
+                        </Button>
                     </Grid>
                 </Border>
             </Grid>
         </Border>
 
-        <Grid Grid.Row="2" RowDefinitions="22,102,28" Background="#07101a">
+        <Grid Grid.Row="2" RowDefinitions="22,102,28" Background="#070f18">
             <ItemsControl Grid.Row="0" ItemsSource="{Binding TimeMarkers}">
                 <ItemsControl.ItemsPanel>
                     <ItemsPanelTemplate>
@@ -368,76 +556,65 @@
                 </ItemsControl.ItemsPanel>
                 <ItemsControl.ItemTemplate>
                     <DataTemplate>
-                        <Border Background="#122233" BorderBrush="#28394c" BorderThickness="0,0,1,1" Padding="6,4">
-                            <TextBlock Text="{Binding}" Foreground="#71b9ff" FontSize="10" FontWeight="Bold"/>
+                        <Border Background="#111f30" BorderBrush="#243447" BorderThickness="0,0,1,1" Padding="6,4">
+                            <TextBlock Text="{Binding}" Foreground="#6fa4e6" FontSize="10" FontWeight="Bold"/>
                         </Border>
                     </DataTemplate>
                 </ItemsControl.ItemTemplate>
             </ItemsControl>
             <controls:WaveformView Grid.Row="1" Peaks="{Binding WaveformPeaks}" Progress="{Binding PlaybackProgress}" PointerPressed="WaveformView_PointerPressed"/>
             <Grid Grid.Row="2">
-                <controls:SectionRulerView Sections="{Binding SessionRegions}" TotalMeasures="176"/>
-                <Button Classes="primary" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,4,0" Padding="12,4" FontSize="11" Command="{Binding OpenAddSessionModalCommand}" Content="Sessao"/>
+                <controls:SectionRulerView Sections="{Binding SessionRegions}"
+                                            TotalMeasures="176"
+                                            QueueSectionCommand="{Binding QueueOrStartSessionCommand}"
+                                            OpenSectionMenuCommand="{Binding OpenSessionActionsModalCommand}"/>
+                <Button Classes="primary" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,4,0" Padding="12,4" FontSize="11" Command="{Binding OpenAddSessionModalCommand}" Content="Sessão"/>
             </Grid>
         </Grid>
 
-        <Grid Grid.Row="3" RowDefinitions="42,*" Background="#080d14">
-            <Border Grid.Row="0" BorderBrush="#162231" BorderThickness="0,0,0,1" Padding="10,5">
+        <Grid Grid.Row="3" RowDefinitions="42,*" Background="#070b12">
+            <Border Grid.Row="0" BorderBrush="#182233" BorderThickness="0,0,0,1" Padding="10,5">
                 <StackPanel Orientation="Horizontal" Spacing="8">
-                    <TextBlock Text="{Binding TrackCount, StringFormat='{}{0} TRACKS'}" Foreground="#44617f" FontWeight="Bold" FontSize="11" VerticalAlignment="Center"/>
+                    <TextBlock Text="{Binding TrackCount, StringFormat='{}{0} TRACKS'}" Foreground="#5a7492" FontWeight="Bold" FontSize="11" LetterSpacing="0.5" VerticalAlignment="Center"/>
                     <Button x:Name="ImportTracksButton" Classes="primary" Click="ImportTracksButton_Click" Content="+ ADICIONAR" Padding="14,6" FontSize="11"/>
-                    <Button Content="DRIVE" Padding="14,6" FontSize="11"/>
                     <TextBlock Text="{Binding StatusMessage}" Foreground="#7289a3" FontSize="11" VerticalAlignment="Center"/>
                 </StackPanel>
             </Border>
-            <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
-                <ItemsControl ItemsSource="{Binding Tracks}" Margin="10,8">
+            <ScrollViewer x:Name="TracksScrollViewer" Grid.Row="1" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+                <ItemsControl ItemsSource="{Binding Tracks}" Margin="10,0">
                     <ItemsControl.ItemsPanel>
                         <ItemsPanelTemplate>
-                            <StackPanel Orientation="Horizontal" Spacing="8"/>
+                            <StackPanel Orientation="Horizontal" Spacing="10"/>
                         </ItemsPanelTemplate>
                     </ItemsControl.ItemsPanel>
                     <ItemsControl.ItemTemplate>
                         <DataTemplate x:DataType="vm:TrackChannelViewModel">
-                            <Border Width="104" Height="520" Background="#101720" BorderBrush="#243245" BorderThickness="1" CornerRadius="6" Padding="7">
-                                <Grid RowDefinitions="28,22,*,36,44,28">
-                                    <Grid ColumnDefinitions="*,28">
-                                        <TextBlock Text="{Binding NumberLabel, StringFormat='# {0}'}" Foreground="#67809a" FontSize="11" FontWeight="Bold" VerticalAlignment="Center"/>
-                                        <Button Grid.Column="1" Classes="icon-button" Command="{Binding $parent[Window].DataContext.RemoveTrackCommand}" CommandParameter="{Binding}" ToolTip.Tip="Excluir track">
-                                            <PathIcon Data="{StaticResource IconTrash}" Foreground="#95a8bd" Width="14" Height="14"/>
+                            <Border Classes="track-strip" Width="112" MinHeight="320" Height="{Binding #TracksScrollViewer.Bounds.Height}" Padding="8">
+                                <Grid RowDefinitions="28,39,17,*,45,45">
+                                    <Grid ColumnDefinitions="*,24">
+                                        <TextBlock Text="{Binding NumberLabel, StringFormat='# {0}'}" Foreground="#7ea0c3" FontSize="11" FontWeight="Bold" VerticalAlignment="Center"/>
+                                        <Button Grid.Column="1" Classes="track-delete-button" Command="{Binding $parent[Window].DataContext.RemoveTrackCommand}" CommandParameter="{Binding}" ToolTip.Tip="Excluir track">
+                                            <Path Classes="icon" Data="{StaticResource IconTrash}" Fill="#8fa5bc" Width="14" Height="14" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                         </Button>
                                     </Grid>
-                                    <TextBlock Grid.Row="1" Text="-3dB" Foreground="#8aa0b7" FontSize="10" HorizontalAlignment="Center"/>
-                                    <Grid Grid.Row="2" ColumnDefinitions="12,*" Margin="0,2,0,0">
-                                        <controls:LevelMeter Level="{Binding Level}" Width="7"/>
-                                        <Border Grid.Column="1" Width="44" HorizontalAlignment="Center" Background="#0b121b" BorderBrush="#1d2b3b" BorderThickness="1" CornerRadius="8" Padding="4,10">
-                                            <Grid RowDefinitions="18,*">
-                                                <PathIcon Data="{StaticResource IconVolume}" Foreground="#73a8ff" Width="16" Height="16" HorizontalAlignment="Center"/>
-                                                <Slider Grid.Row="1" Classes="volume-slider" Orientation="Vertical" Minimum="0" Maximum="1" Value="{Binding Volume}" HorizontalAlignment="Center"/>
-                                            </Grid>
-                                        </Border>
-                                    </Grid>
-                                    <Border Grid.Row="3" Background="#07151a" BorderBrush="#173c42" BorderThickness="1" CornerRadius="7" Padding="5,2" VerticalAlignment="Center">
-                                        <Grid ColumnDefinitions="14,*,14" ColumnSpacing="3">
-                                            <TextBlock Text="L" Foreground="#63dcca" FontSize="10" FontWeight="Bold" VerticalAlignment="Center" HorizontalAlignment="Center"/>
-                                            <Grid Grid.Column="1" RowDefinitions="10,*">
-                                                <PathIcon Data="{StaticResource IconPan}" Foreground="#21c2a8" Width="20" Height="10" HorizontalAlignment="Center"/>
-                                                <Slider Grid.Row="1" Classes="pan-slider" Minimum="-1" Maximum="1" Value="{Binding Pan}" Height="16"/>
-                                            </Grid>
-                                            <TextBlock Grid.Column="2" Text="R" Foreground="#63dcca" FontSize="10" FontWeight="Bold" VerticalAlignment="Center" HorizontalAlignment="Center"/>
-                                        </Grid>
-                                    </Border>
-                                    <StackPanel Grid.Row="4" VerticalAlignment="Center" Spacing="2">
-                                        <TextBlock Text="{Binding FooterTitle}" Foreground="White" FontSize="11" FontWeight="Bold" TextTrimming="CharacterEllipsis"/>
-                                        <TextBlock Text="{Binding FileName}" Foreground="#7890aa" FontSize="9" TextTrimming="CharacterEllipsis"/>
+                                    <StackPanel Grid.Row="1" VerticalAlignment="Center" Spacing="1">
+                                        <TextBlock Text="{Binding FooterTitle}" Foreground="#f4f8ff" FontSize="11" FontWeight="Bold" TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Text="{Binding FileName}" Foreground="#7f96b1" FontSize="9" TextTrimming="CharacterEllipsis"/>
                                     </StackPanel>
+                                    <Grid Grid.Row="2" ColumnDefinitions="*,Auto">
+                                        <TextBlock Text="{Binding VolumeDb}" Foreground="#9badc1" FontSize="10" FontWeight="SemiBold" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        <Border Grid.Column="1" Width="7" Height="7" CornerRadius="4" Background="#ff3b48" IsVisible="{Binding IsClipping}" ToolTip.Tip="Clipping"/>
+                                    </Grid>
+                                    <Grid Grid.Row="3" Margin="0,2,0,2" HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+                                        <controls:LevelMeter Level="{Binding Level}" Volume="{Binding Volume, Mode=TwoWay}" Width="46" HorizontalAlignment="Center" VerticalAlignment="Stretch" ToolTip.Tip="Arraste para ajustar o volume" AutomationProperties.Name="Volume da track"/>
+                                    </Grid>
+                                    <Grid Grid.Row="4" ColumnDefinitions="*,*" ColumnSpacing="6">
+                                        <ToggleButton Classes="channel-toggle bus-toggle master-a-toggle" IsChecked="{Binding IsMasterA}" Content="A" ToolTip.Tip="Master A (pan esquerda)"/>
+                                        <ToggleButton Grid.Column="1" Classes="channel-toggle bus-toggle master-b-toggle" IsChecked="{Binding IsMasterB}" Content="B" ToolTip.Tip="Master B (pan direita)"/>
+                                    </Grid>
                                     <Grid Grid.Row="5" ColumnDefinitions="*,*" ColumnSpacing="6">
-                                        <ToggleButton Classes="channel-toggle mute-toggle" IsChecked="{Binding IsMuted}" ToolTip.Tip="Mute">
-                                            <PathIcon Data="{StaticResource IconMute}" Foreground="#dbe7f5" Width="17" Height="17"/>
-                                        </ToggleButton>
-                                        <ToggleButton Grid.Column="1" Classes="channel-toggle solo-toggle" IsChecked="{Binding IsSolo}" ToolTip.Tip="Solo">
-                                            <PathIcon Data="{StaticResource IconSolo}" Foreground="#dbe7f5" Width="17" Height="17"/>
-                                        </ToggleButton>
+                                        <ToggleButton Classes="channel-toggle strip-action-toggle mute-toggle" IsChecked="{Binding IsMuted}" Content="M" ToolTip.Tip="Mute"/>
+                                        <ToggleButton Grid.Column="1" Classes="channel-toggle strip-action-toggle solo-toggle" IsChecked="{Binding IsSolo}" Content="S" ToolTip.Tip="Solo"/>
                                     </Grid>
                                 </Grid>
                             </Border>
@@ -447,19 +624,32 @@
             </ScrollViewer>
         </Grid>
 
-        <Border Grid.Row="4" Background="#070b11" BorderBrush="#172334" BorderThickness="0,1,0,0" Padding="14,5">
-            <Grid ColumnDefinitions="Auto,Auto,*,Auto" ColumnSpacing="10">
-                <TextBlock Text="MASTER" Foreground="#9d71ff" FontWeight="Bold" FontSize="12" VerticalAlignment="Center"/>
-                <TextBlock Grid.Column="1" Text="-3dB" Foreground="#50647a" FontSize="10" VerticalAlignment="Center"/>
-                <Slider Grid.Column="2" Minimum="0" Maximum="1" Value="{Binding MasterVolume}" VerticalAlignment="Center"/>
-                <TextBlock Grid.Column="3" Text="+0,0 dB" Foreground="#9fb1c5" FontSize="11" VerticalAlignment="Center" HorizontalAlignment="Right"/>
+        <Border Grid.Row="4" Background="#080c14" BorderBrush="#182233" BorderThickness="0,1,0,0" Padding="14,8">
+            <Grid ColumnDefinitions="Auto,Auto,Auto,*,*" ColumnSpacing="18" VerticalAlignment="Center">
+                <ToggleButton Content="{Binding MidiMappingEditModeText}" IsChecked="{Binding IsMidiMappingEditMode}" ToolTip.Tip="Editar mapeamentos MIDI" Padding="12,6" VerticalAlignment="Center"/>
+                <TextBlock Grid.Column="1" Text="{Binding CpuUsageText}" Foreground="#7f92aa" FontSize="11" FontWeight="Bold" VerticalAlignment="Center"/>
+                <TextBlock Grid.Column="2" Text="{Binding MemoryUsageText}" Foreground="#7f92aa" FontSize="11" FontWeight="Bold" VerticalAlignment="Center"/>
+                <Grid Grid.Column="3" ColumnDefinitions="Auto,*" ColumnSpacing="10">
+                    <TextBlock Text="MASTER A" Foreground="#21c2a8" FontWeight="Bold" FontSize="12" LetterSpacing="0.5" VerticalAlignment="Center"/>
+                    <Grid Grid.Column="1">
+                        <Slider Classes="master-a-slider" Minimum="0" Maximum="1" Value="{Binding MasterAVolume}" VerticalAlignment="Center" Margin="0,2" IsVisible="{Binding IsNotMidiMappingEditMode}"/>
+                        <Button HorizontalAlignment="Stretch" Command="{Binding OpenMidiMappingModalCommand}" CommandParameter="MasterA" Content="{Binding MasterAMidiMappingLabel}" ToolTip.Tip="Mapear Volume Master A" IsVisible="{Binding IsMidiMappingEditMode}"/>
+                    </Grid>
+                </Grid>
+                <Grid Grid.Column="4" ColumnDefinitions="Auto,*" ColumnSpacing="10">
+                    <TextBlock Text="MASTER B" Foreground="#9d71ff" FontWeight="Bold" FontSize="12" LetterSpacing="0.5" VerticalAlignment="Center"/>
+                    <Grid Grid.Column="1">
+                        <Slider Classes="master-b-slider" Minimum="0" Maximum="1" Value="{Binding MasterBVolume}" VerticalAlignment="Center" Margin="0,2" IsVisible="{Binding IsNotMidiMappingEditMode}"/>
+                        <Button HorizontalAlignment="Stretch" Command="{Binding OpenMidiMappingModalCommand}" CommandParameter="MasterB" Content="{Binding MasterBMidiMappingLabel}" ToolTip.Tip="Mapear Volume Master B" IsVisible="{Binding IsMidiMappingEditMode}"/>
+                    </Grid>
+                </Grid>
             </Grid>
         </Border>
 
-        <Border Grid.RowSpan="5" Background="#99000000" IsVisible="{Binding IsAddSessionModalOpen}">
-            <Border Width="470" Background="#101823" BorderBrush="#2e4056" BorderThickness="1" CornerRadius="8" Padding="18" HorizontalAlignment="Center" VerticalAlignment="Center">
+        <Border Grid.RowSpan="5" Background="#b3000000" IsVisible="{Binding IsAddSessionModalOpen}">
+            <Border Width="470" Background="#121b28" BorderBrush="#32475f" BorderThickness="1" CornerRadius="16" Padding="20" HorizontalAlignment="Center" VerticalAlignment="Center" BoxShadow="0 12 40 0 #66000000">
                 <StackPanel Spacing="14">
-                    <TextBlock Text="Nova sessao" Foreground="White" FontSize="20" FontWeight="Bold"/>
+                    <TextBlock Text="{Binding SessionModalTitle}" Foreground="White" FontSize="20" FontWeight="Bold"/>
                     <StackPanel Spacing="5">
                         <TextBlock Text="Nome" Foreground="#91a7bf" FontWeight="Bold" FontSize="11"/>
                         <ComboBox ItemsSource="{Binding SessionNameOptions}" SelectedItem="{Binding NewSessionName}" HorizontalAlignment="Stretch"/>
@@ -474,9 +664,10 @@
                             <NumericUpDown Minimum="1" Maximum="999" Value="{Binding NewSessionEndMeasure}"/>
                         </StackPanel>
                     </Grid>
-                    <Border Background="#0b121b" BorderBrush="#1e2b3c" BorderThickness="1" CornerRadius="7" Padding="12">
+                    <CheckBox Content="Usar pré-contagem ao iniciar esta sessão" IsChecked="{Binding NewSessionPreCountEnabled}" Foreground="#d8e6f6"/>
+                    <Border Background="#0c141f" BorderBrush="#213048" BorderThickness="1" CornerRadius="10" Padding="12">
                         <StackPanel Spacing="7">
-                            <TextBlock Text="Copiar tamanho de sessao" Foreground="#91a7bf" FontWeight="Bold" FontSize="11"/>
+                            <TextBlock Text="Copiar tamanho de sessão" Foreground="#91a7bf" FontWeight="Bold" FontSize="11"/>
                             <ComboBox ItemsSource="{Binding SessionCopyOptions}" SelectedItem="{Binding SelectedSessionCopySource}" HorizontalAlignment="Stretch">
                                 <ComboBox.ItemTemplate>
                                     <DataTemplate>
@@ -488,20 +679,52 @@
                     </Border>
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
                         <Button Command="{Binding CloseAddSessionModalCommand}" Content="Cancelar"/>
-                        <Button Classes="primary" Command="{Binding AddSessionCommand}" Content="Adicionar"/>
+                        <Button Classes="primary" Command="{Binding AddSessionCommand}" Content="{Binding SessionModalSubmitText}"/>
                     </StackPanel>
                 </StackPanel>
             </Border>
         </Border>
 
-        <Border Grid.RowSpan="5" Background="#99000000" IsVisible="{Binding IsAudioSettingsModalOpen}">
-            <Border Width="620" MaxHeight="620" Background="#101823" BorderBrush="#2e4056" BorderThickness="1" CornerRadius="8" Padding="18" HorizontalAlignment="Center" VerticalAlignment="Center">
+        <Border Grid.RowSpan="5" Background="#b3000000" IsVisible="{Binding IsSessionActionsModalOpen}">
+            <Border Width="360" Background="#121b28" BorderBrush="#32475f" BorderThickness="1" CornerRadius="16" Padding="18" HorizontalAlignment="Center" VerticalAlignment="Center" BoxShadow="0 12 40 0 #66000000">
+                <StackPanel Spacing="12">
+                    <TextBlock Text="{Binding SessionActionsTitle}" Foreground="White" FontSize="18" FontWeight="Bold" TextTrimming="CharacterEllipsis"/>
+                    <Button HorizontalAlignment="Stretch" Command="{Binding EditSelectedSessionCommand}" Content="Editar"/>
+                    <Button HorizontalAlignment="Stretch" Command="{Binding ToggleSelectedSessionLoopCommand}" Content="{Binding SessionLoopActionText}"/>
+                    <Button HorizontalAlignment="Stretch" Command="{Binding DuplicateSelectedSessionCommand}" Content="Duplicar sessão"/>
+                    <Button HorizontalAlignment="Stretch" Command="{Binding DeleteSelectedSessionCommand}" Content="Excluir sessão"/>
+                    <Button HorizontalAlignment="Right" Command="{Binding CloseSessionActionsModalCommand}" Content="Fechar"/>
+                </StackPanel>
+            </Border>
+        </Border>
+
+        <Border Grid.RowSpan="5" Background="#b3000000" IsVisible="{Binding IsMidiMappingModalOpen}">
+            <Border Width="440" Background="#121b28" BorderBrush="#32475f" BorderThickness="1" CornerRadius="16" Padding="20" HorizontalAlignment="Center" VerticalAlignment="Center" BoxShadow="0 12 40 0 #66000000">
+                <StackPanel Spacing="14">
+                    <TextBlock Text="{Binding MidiMappingModalTitle}" Foreground="White" FontSize="20" FontWeight="Bold"/>
+                    <Border Background="#0c141f" BorderBrush="#213048" BorderThickness="1" CornerRadius="10" Padding="12">
+                        <StackPanel Spacing="8">
+                            <TextBlock Text="{Binding MidiMappingModalInstruction}" Foreground="#d8e6f6" TextWrapping="Wrap"/>
+                            <TextBlock Text="{Binding MidiMappingModalCurrent}" Foreground="#91a7bf" FontWeight="Bold"/>
+                        </StackPanel>
+                    </Border>
+                    <TextBlock Text="Aguardando controle MIDI..." Foreground="#6f88a3" FontSize="11" FontWeight="Bold" LetterSpacing="0.5"/>
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+                        <Button Command="{Binding ClearMidiMappingCommand}" Content="Limpar"/>
+                        <Button Command="{Binding CloseMidiMappingModalCommand}" Content="Cancelar"/>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+        </Border>
+
+        <Border Grid.RowSpan="5" Background="#b3000000" IsVisible="{Binding IsAudioSettingsModalOpen}">
+            <Border Width="620" MaxHeight="620" Background="#121b28" BorderBrush="#32475f" BorderThickness="1" CornerRadius="16" Padding="20" HorizontalAlignment="Center" VerticalAlignment="Center" BoxShadow="0 12 40 0 #66000000">
                 <Grid RowDefinitions="Auto,*,Auto" RowSpacing="14">
-                    <TextBlock Text="Configuracao de audio e MIDI" Foreground="White" FontSize="20" FontWeight="Bold"/>
+                    <TextBlock Text="Configuração de áudio e MIDI" Foreground="White" FontSize="20" FontWeight="Bold"/>
                     <StackPanel Grid.Row="1" Spacing="14">
-                        <Border Background="#0b121b" BorderBrush="#1e2b3c" BorderThickness="1" CornerRadius="7" Padding="12">
+                        <Border Background="#0c141f" BorderBrush="#213048" BorderThickness="1" CornerRadius="10" Padding="12">
                             <StackPanel Spacing="8">
-                                <TextBlock Text="Saida de audio" Foreground="#91a7bf" FontWeight="Bold"/>
+                                <TextBlock Text="Saída de áudio" Foreground="#91a7bf" FontWeight="Bold"/>
                                 <ComboBox ItemsSource="{Binding AudioOutputDevices}"
                                           SelectedItem="{Binding SelectedAudioOutputDevice}"
                                           HorizontalAlignment="Stretch">
@@ -514,7 +737,7 @@
                             </StackPanel>
                         </Border>
 
-                        <Border Background="#0b121b" BorderBrush="#1e2b3c" BorderThickness="1" CornerRadius="7" Padding="12">
+                        <Border Background="#0c141f" BorderBrush="#213048" BorderThickness="1" CornerRadius="10" Padding="12">
                             <Grid RowDefinitions="Auto,Auto,Auto" RowSpacing="10">
                                 <Grid ColumnDefinitions="*,Auto">
                                     <TextBlock Text="Controlador MIDI" Foreground="#91a7bf" FontWeight="Bold" VerticalAlignment="Center"/>
@@ -541,6 +764,32 @@
                                 </Grid>
                             </Grid>
                         </Border>
+
+                        <Border Background="#0c141f" BorderBrush="#213048" BorderThickness="1" CornerRadius="10" Padding="12">
+                            <StackPanel Spacing="10">
+                                <Grid ColumnDefinitions="*,Auto">
+                                    <StackPanel Spacing="2">
+                                        <TextBlock Text="Sincronização da grade" Foreground="#91a7bf" FontWeight="Bold"/>
+                                        <TextBlock Text="Marque o compasso 1.1 durante o áudio ou ajuste em passos de 10 ms."
+                                                   Foreground="#6f88a3"
+                                                   FontSize="10"
+                                                   TextWrapping="Wrap"/>
+                                        <TextBlock Text="{Binding TempoAnalysisSummary}"
+                                                   Foreground="#7fa4ea"
+                                                   FontSize="10"
+                                                   TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                    <TextBlock Grid.Column="1" Text="{Binding BeatGridOffsetText}" Foreground="White" FontWeight="Bold" VerticalAlignment="Center"/>
+                                </Grid>
+                                <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+                                    <Button Command="{Binding RedetectTempoCommand}" Content="Analisar novamente"/>
+                                    <Button Command="{Binding AdjustBeatGridOffsetCommand}" CommandParameter="-10" Content="−10 ms"/>
+                                    <Button Command="{Binding AdjustBeatGridOffsetCommand}" CommandParameter="10" Content="+10 ms"/>
+                                    <Button Command="{Binding ResetBeatGridOffsetCommand}" Content="Zerar"/>
+                                    <Button Classes="primary" Command="{Binding MarkCurrentPositionAsBarStartCommand}" Content="Marcar 1.1 aqui"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
                     </StackPanel>
 
                     <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
@@ -548,6 +797,28 @@
                         <Button Classes="primary" Command="{Binding CloseAudioSettingsModalCommand}" Content="Fechar"/>
                     </StackPanel>
                 </Grid>
+            </Border>
+        </Border>
+
+        <Border Grid.RowSpan="5"
+                Background="#cc05080d"
+                IsVisible="{Binding IsBusy}"
+                ZIndex="100">
+            <Border Width="420"
+                    Background="#121b28"
+                    BorderBrush="#3b7bff"
+                    BorderThickness="1"
+                    CornerRadius="16"
+                    Padding="22"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    BoxShadow="0 12 40 0 #66000000">
+                <StackPanel Spacing="14">
+                    <TextBlock Text="Processando áudio" Foreground="White" FontSize="20" FontWeight="Bold"/>
+                    <TextBlock Text="{Binding OperationStatus}" Foreground="#a9bdd3" TextWrapping="Wrap"/>
+                    <ProgressBar Minimum="0" Maximum="1" Value="{Binding OperationProgress}" Height="8"/>
+                    <Button HorizontalAlignment="Right" Command="{Binding CancelOperationCommand}" Content="Cancelar"/>
+                </StackPanel>
             </Border>
         </Border>
     </Grid>
