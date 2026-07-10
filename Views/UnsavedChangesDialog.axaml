@@ -1,0 +1,24 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="VSMixer.Views.UnsavedChangesDialog"
+        Title="Alterações não salvas"
+        Width="460"
+        SizeToContent="Height"
+        CanResize="False"
+        ShowInTaskbar="False"
+        WindowStartupLocation="CenterOwner"
+        Background="#0c1420">
+    <Border Padding="24" BorderBrush="#32475f" BorderThickness="1" CornerRadius="14">
+        <StackPanel Spacing="16">
+            <TextBlock Text="Alterações não salvas" Foreground="White" FontSize="20" FontWeight="Bold"/>
+            <TextBlock x:Name="MessageText"
+                       Foreground="#b8c9dc"
+                       TextWrapping="Wrap"/>
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+                <Button Click="Cancel_Click" Content="Cancelar"/>
+                <Button Click="Discard_Click" Content="Descartar"/>
+                <Button Click="Save_Click" Content="Salvar" Background="#3b7bff" Foreground="White"/>
+            </StackPanel>
+        </StackPanel>
+    </Border>
+</Window>

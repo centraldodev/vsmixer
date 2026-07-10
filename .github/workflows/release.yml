@@ -1,0 +1,34 @@
+name: Release artifacts
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            profile: win-x64
+          - os: macos-latest
+            profile: osx-x64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+          cache: true
+          cache-dependency-path: '**/*.csproj'
+      - run: dotnet restore VSMixer.slnx
+      - run: dotnet test VSMixer.slnx --configuration Release
+      - run: dotnet publish VSMixer.csproj -p:PublishProfile=${{ matrix.profile }} --output artifacts/${{ matrix.profile }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: VSMixer-${{ matrix.profile }}
+          path: artifacts/${{ matrix.profile }}
+          if-no-files-found: error

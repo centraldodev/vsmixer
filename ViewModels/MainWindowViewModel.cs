@@ -1,13 +1,8 @@
-using System;
-using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
-using System.IO;
-using System.Linq;
 using System.Text;
-using System.Text.Json;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -25,8 +20,39 @@ public enum MidiMapTarget
     MasterB
 }
 
-public partial class MainWindowViewModel : ViewModelBase
+public partial class MainWindowViewModel : ViewModelBase, IDisposable
 {
+    public event Action<ProjectTabViewModel>? DirtyTabCloseRequested;
+
+    private static readonly HashSet<string> PersistedPropertyNames =
+    [
+        nameof(ProjectName),
+        nameof(DetectedBpm),
+        nameof(PlaybackBpm),
+        nameof(BeatGridOffsetSeconds),
+        nameof(PitchOffset),
+        nameof(SelectedTimeSignature),
+        nameof(SelectedGrid),
+        nameof(MasterAVolume),
+        nameof(MasterBVolume),
+        nameof(MetronomeEnabled),
+        nameof(MetronomeVolume),
+        nameof(MetronomePan),
+        nameof(GuideVoiceEnabled),
+        nameof(GuideVoiceVolume),
+        nameof(GuideVoicePan),
+        nameof(PadContinuousEnabled),
+        nameof(SelectedPadNote),
+        nameof(SelectedAudioOutputDevice),
+        nameof(IsMidiControllerEnabled),
+        nameof(SelectedMidiController),
+        nameof(SelectedMidiControlBank),
+        nameof(PlayMidiMapping),
+        nameof(RewindMidiMapping),
+        nameof(MasterAMidiMapping),
+        nameof(MasterBMidiMapping)
+    ];
+
     private readonly string[] _sectionColors = ["#2f7dff", "#28b66f", "#db9d27", "#b45cff", "#ef5a77", "#18a8b8"];
     private readonly IReadOnlyDictionary<string, string> _padFiles = new Dictionary<string, string>
     {
@@ -46,33 +72,56 @@ public partial class MainWindowViewModel : ViewModelBase
     private readonly Dictionary<string, string> _guideVoiceFiles = new(StringComparer.OrdinalIgnoreCase);
     private readonly IAudioEngine _audioEngine;
     private readonly IMidiControlService _midiControlService;
+    private readonly IProjectFileService _projectFileService;
+    private readonly ProjectRecoveryService _recoveryService;
     private readonly Process _currentProcess = Process.GetCurrentProcess();
     private SessionRegionViewModel? _editingSession;
     private SessionRegionViewModel? _queuedSession;
     private SessionRegionViewModel? _activePlaybackSession;
     private SessionRegionViewModel? _selectedSessionForMenu;
     private readonly DispatcherTimer _meterTimer;
-    private readonly DispatcherTimer _metronomeTimer;
-    private readonly Stopwatch _metronomeClock = new();
+    private readonly DispatcherTimer _recoveryTimer;
+    private readonly MetronomeScheduler _metronomeScheduler;
     private double _durationSeconds;
-    private double _nextMetronomeBeatSeconds;
-    private int _metronomeBeatIndex;
     private string? _lastGuideVoiceKey;
     private bool _isRestoringProjectTab;
     private MidiMapTarget? _pendingMidiMapTarget;
     private DateTime _lastPerformanceSampleTime = DateTime.UtcNow;
     private TimeSpan _lastPerformanceSampleCpuTime;
     private DateTime _nextPerformanceSampleTime = DateTime.MinValue;
+    private bool _disposed;
+    private CancellationTokenSource? _operationCancellation;
+    private bool _discardRecoveryOnExit;
 
     public MainWindowViewModel()
-        : this(new BassAudioEngine(), new DryWetMidiControlService())
+        : this(new BassAudioEngine(), new DryWetMidiControlService(), new ProjectFileService(), new ProjectRecoveryService())
     {
     }
 
     public MainWindowViewModel(IAudioEngine audioEngine, IMidiControlService midiControlService)
+        : this(audioEngine, midiControlService, new ProjectFileService(), new ProjectRecoveryService())
+    {
+    }
+
+    public MainWindowViewModel(
+        IAudioEngine audioEngine,
+        IMidiControlService midiControlService,
+        IProjectFileService projectFileService)
+        : this(audioEngine, midiControlService, projectFileService, new ProjectRecoveryService())
+    {
+    }
+
+    public MainWindowViewModel(
+        IAudioEngine audioEngine,
+        IMidiControlService midiControlService,
+        IProjectFileService projectFileService,
+        ProjectRecoveryService recoveryService)
     {
         _audioEngine = audioEngine;
         _midiControlService = midiControlService;
+        _projectFileService = projectFileService;
+        _recoveryService = recoveryService;
+        _metronomeScheduler = new MetronomeScheduler(isAccent => _audioEngine.PlayMetronomeClick(isAccent));
         _meterTimer = new DispatcherTimer
         {
             Interval = TimeSpan.FromMilliseconds(55)
@@ -80,12 +129,12 @@ public partial class MainWindowViewModel : ViewModelBase
         _meterTimer.Tick += (_, _) => UpdateTransport();
         _meterTimer.Start();
 
-        _metronomeTimer = new DispatcherTimer
+        _recoveryTimer = new DispatcherTimer
         {
-            Interval = TimeSpan.FromMilliseconds(10)
+            Interval = TimeSpan.FromSeconds(30)
         };
-        _metronomeTimer.Tick += (_, _) => UpdateMetronome();
-        _metronomeTimer.Start();
+        _recoveryTimer.Tick += (_, _) => SaveRecoverySnapshot();
+        _recoveryTimer.Start();
 
         WaveformPeaks.Clear();
         RefreshGuideVoiceFiles();
@@ -97,6 +146,8 @@ public partial class MainWindowViewModel : ViewModelBase
         };
         ProjectTabs.Add(initialTab);
         _activeProjectTab = initialTab;
+        PropertyChanged += OnViewModelPropertyChanged;
+        TryRestoreRecovery();
     }
 
     public ObservableCollection<ProjectTabViewModel> ProjectTabs { get; } = [];
@@ -135,16 +186,19 @@ public partial class MainWindowViewModel : ViewModelBase
     private string _barClock = "1.1.01";
 
     [ObservableProperty]
-    private int _detectedBpm = 133;
+    private double _detectedBpm = 133;
 
     [ObservableProperty]
     private string _detectedBpmText = "133";
 
     [ObservableProperty]
-    private int _playbackBpm = 133;
+    private double _playbackBpm = 133;
 
     [ObservableProperty]
     private string _playbackBpmText = "133";
+
+    [ObservableProperty]
+    private double _beatGridOffsetSeconds;
 
     [ObservableProperty]
     private string _selectedTimeSignature = "4/4";
@@ -201,6 +255,18 @@ public partial class MainWindowViewModel : ViewModelBase
     private string _memoryUsageText = "RAM 0 MB";
 
     [ObservableProperty]
+    private bool _isBusy;
+
+    [ObservableProperty]
+    private double _operationProgress;
+
+    [ObservableProperty]
+    private string _operationStatus = string.Empty;
+
+    [ObservableProperty]
+    private string _tempoAnalysisSummary = "A grade será analisada ao importar as tracks.";
+
+    [ObservableProperty]
     private bool _isAddSessionModalOpen;
 
     [ObservableProperty]
@@ -240,7 +306,7 @@ public partial class MainWindowViewModel : ViewModelBase
     private MidiMapping? _masterBMidiMapping;
 
     [ObservableProperty]
-    private string _newSessionName = "Sessao";
+    private string _newSessionName = "Sessão";
 
     [ObservableProperty]
     private int _newSessionStartMeasure = 145;
@@ -255,10 +321,11 @@ public partial class MainWindowViewModel : ViewModelBase
     public string PlayPauseText => IsPlaying ? "Pause" : "Play";
     public bool IsNotPlaying => !IsPlaying;
     public bool HasSavedProject => !string.IsNullOrWhiteSpace(CurrentProjectPath);
+    public bool HasUnsavedChanges => ProjectTabs.Any(tab => tab.IsDirty);
     public bool IsEditingSession => _editingSession is not null;
-    public string SessionModalTitle => IsEditingSession ? "Editar sessao" : "Nova sessao";
+    public string SessionModalTitle => IsEditingSession ? "Editar sessão" : "Nova sessão";
     public string SessionModalSubmitText => IsEditingSession ? "Salvar" : "Adicionar";
-    public string SessionActionsTitle => _selectedSessionForMenu is null ? "Sessao" : _selectedSessionForMenu.Name;
+    public string SessionActionsTitle => _selectedSessionForMenu is null ? "Sessão" : _selectedSessionForMenu.Name;
     public string SessionLoopActionText => _selectedSessionForMenu?.IsLooping == true ? "Remover loop" : "Colocar em loop";
     public bool IsNotMidiMappingEditMode => !IsMidiMappingEditMode;
     public string MidiMappingEditModeText => IsMidiMappingEditMode ? "Sair MIDI" : "MIDI";
@@ -275,6 +342,7 @@ public partial class MainWindowViewModel : ViewModelBase
     public string RewindMidiMappingLabel => FormatMidiMappingLabel(RewindMidiMapping);
     public string MasterAMidiMappingLabel => FormatMidiMappingLabel(MasterAMidiMapping);
     public string MasterBMidiMappingLabel => FormatMidiMappingLabel(MasterBMidiMapping);
+    public string BeatGridOffsetText => $"{BeatGridOffsetSeconds:0.000} s";
     private bool HasImportedAudio => _audioEngine.TrackCount > 0;
 
     partial void OnProjectNameChanged(string value)
@@ -387,19 +455,28 @@ public partial class MainWindowViewModel : ViewModelBase
         }
     }
 
-    partial void OnDetectedBpmChanged(int value)
+    partial void OnDetectedBpmChanged(double value)
     {
-        DetectedBpm = Math.Clamp(value, 1, 300);
+        DetectedBpm = Math.Round(Math.Clamp(value, 1, 300), 2);
         SyncBpmText(nameof(DetectedBpmText), DetectedBpmText, DetectedBpm);
         ApplyPlaybackTempo();
         UpdateClockFields(_audioEngine.CurrentPositionSeconds);
+        RescheduleMetronome();
     }
 
-    partial void OnPlaybackBpmChanged(int value)
+    partial void OnPlaybackBpmChanged(double value)
     {
-        PlaybackBpm = Math.Clamp(value, 1, 300);
+        PlaybackBpm = Math.Round(Math.Clamp(value, 1, 300), 2);
         SyncBpmText(nameof(PlaybackBpmText), PlaybackBpmText, PlaybackBpm);
         ApplyPlaybackTempo();
+        RescheduleMetronome();
+    }
+
+    partial void OnBeatGridOffsetSecondsChanged(double value)
+    {
+        BeatGridOffsetSeconds = Math.Max(0, Math.Round(value, 3));
+        OnPropertyChanged(nameof(BeatGridOffsetText));
+        UpdateClockFields(_audioEngine.CurrentPositionSeconds);
         RescheduleMetronome();
     }
 
@@ -500,8 +577,8 @@ public partial class MainWindowViewModel : ViewModelBase
         }
 
         StatusMessage = _audioEngine.SetOutputDevice(value.Id)
-            ? $"Saida de audio selecionada: {value.Name}."
-            : _audioEngine.LastError ?? "Nao foi possivel selecionar a saida de audio.";
+            ? $"Saída de áudio selecionada: {value.Name}."
+            : _audioEngine.LastError ?? "Não foi possível selecionar a saída de áudio.";
     }
 
     partial void OnIsMidiControllerEnabledChanged(bool value)
@@ -545,20 +622,80 @@ public partial class MainWindowViewModel : ViewModelBase
         ApplyCopiedSessionLength();
     }
 
-    public void ImportTracks(IReadOnlyList<string> filePaths)
+    public async Task ImportTracksAsync(IReadOnlyList<string> filePaths)
     {
-        if (filePaths.Count == 0)
+        if (filePaths.Count == 0 || IsBusy)
         {
             return;
         }
 
+        _operationCancellation?.Dispose();
+        _operationCancellation = new CancellationTokenSource();
+        var cancellationToken = _operationCancellation.Token;
+        IsBusy = true;
+        OperationProgress = 0;
+        OperationStatus = "Preparando importação...";
         IsPlaying = false;
         _audioEngine.Pause();
         _audioEngine.StopGuideVoice();
         StopMetronome();
         _lastGuideVoiceKey = null;
-        var orderedFilePaths = OrderTrackFilePaths(filePaths);
+        try
+        {
+            var orderedFilePaths = OrderTrackFilePaths(filePaths);
+            var progress = new Progress<(double Value, string Status)>(update =>
+            {
+                OperationProgress = update.Value;
+                OperationStatus = update.Status;
+            });
+            var outcome = await Task.Run(() => ImportAndAnalyze(orderedFilePaths, progress, cancellationToken), cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+            ApplyImportedTracks(outcome);
+        }
+        catch (OperationCanceledException)
+        {
+            StatusMessage = "Importação cancelada.";
+        }
+        catch (Exception ex)
+        {
+            AppLogger.Error("Falha ao importar áudio", ex);
+            StatusMessage = $"Não foi possível importar as tracks: {ex.Message}";
+        }
+        finally
+        {
+            IsBusy = false;
+            OperationProgress = 0;
+            OperationStatus = string.Empty;
+            _operationCancellation?.Dispose();
+            _operationCancellation = null;
+        }
+    }
+
+    private AudioImportOutcome ImportAndAnalyze(
+        IReadOnlyList<string> orderedFilePaths,
+        IProgress<(double Value, string Status)> progress,
+        CancellationToken cancellationToken)
+    {
+        progress.Report((0.08, "Carregando arquivos de áudio..."));
+        cancellationToken.ThrowIfCancellationRequested();
         var results = _audioEngine.LoadTracks(orderedFilePaths);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        progress.Report((0.42, "Gerando forma de onda..."));
+        var waveform = _audioEngine.GetSummedWaveform(360);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        progress.Report((0.72, "Detectando BPM e alinhando beats..."));
+        var tempoAnalysis = _audioEngine.AnalyzeTempo();
+        cancellationToken.ThrowIfCancellationRequested();
+
+        progress.Report((1, "Finalizando importação..."));
+        return new AudioImportOutcome(results, waveform, _audioEngine.DurationSeconds, tempoAnalysis);
+    }
+
+    private void ApplyImportedTracks(AudioImportOutcome outcome)
+    {
+        var results = outcome.Results;
         var loaded = results.Where(result => result.IsLoaded).ToArray();
         var failed = results.Where(result => !result.IsLoaded).ToArray();
 
@@ -575,35 +712,104 @@ public partial class MainWindowViewModel : ViewModelBase
 
         OnPropertyChanged(nameof(TrackCount));
         ApplyMixerStates();
-        UpdateWaveformPeaks();
-        _durationSeconds = Math.Max(0, _audioEngine.DurationSeconds);
+        WaveformPeaks.Clear();
+        foreach (var peak in outcome.Waveform)
+        {
+            WaveformPeaks.Add(peak);
+        }
+
+        _durationSeconds = Math.Max(0, outcome.DurationSeconds);
         CurrentTime = FormatTime(0);
         PlaybackProgress = 0;
 
-        var detectedBpm = _audioEngine.DetectBpm();
-        if (detectedBpm.HasValue)
+        if (outcome.TempoAnalysis is { } tempoAnalysis)
         {
-            DetectedBpm = detectedBpm.Value;
-            PlaybackBpm = detectedBpm.Value;
+            DetectedBpm = tempoAnalysis.Bpm;
+            PlaybackBpm = tempoAnalysis.Bpm;
+            BeatGridOffsetSeconds = tempoAnalysis.BeatGridOffsetSeconds;
+            TempoAnalysisSummary = FormatTempoAnalysisSummary(tempoAnalysis);
         }
 
         UpdateClockFields(0);
 
         StatusMessage = failed.Length == 0
-            ? $"{loaded.Length} tracks importadas. BPM detectado: {DetectedBpm}."
+            ? $"{loaded.Length} tracks importadas. BPM: {DetectedBpm:0.##}; grade: {BeatGridOffsetSeconds:0.000} s."
             : $"{loaded.Length} tracks importadas. {failed.Length} falharam: {string.Join(", ", failed.Select(item => item.ErrorMessage).Distinct())}";
         SaveActiveProjectTab();
     }
 
+    [RelayCommand]
+    private void CancelOperation()
+    {
+        _operationCancellation?.Cancel();
+        OperationStatus = "Cancelando...";
+    }
+
+    [RelayCommand]
+    private async Task RedetectTempo()
+    {
+        if (!HasImportedAudio || IsBusy)
+        {
+            StatusMessage = HasImportedAudio ? "Já existe uma operação em andamento." : "Importe áudio antes de analisar o tempo.";
+            return;
+        }
+
+        IsPlaying = false;
+        _audioEngine.Pause();
+        StopMetronome();
+        IsBusy = true;
+        OperationProgress = 0.25;
+        OperationStatus = "Analisando BPM e posição dos beats...";
+        try
+        {
+            var analysis = await Task.Run(_audioEngine.AnalyzeTempo);
+            if (analysis is null)
+            {
+                StatusMessage = "Não foi possível identificar uma grade confiável. Ajuste o BPM e marque o 1.1 manualmente.";
+                return;
+            }
+
+            DetectedBpm = analysis.Bpm;
+            PlaybackBpm = analysis.Bpm;
+            BeatGridOffsetSeconds = analysis.BeatGridOffsetSeconds;
+            TempoAnalysisSummary = FormatTempoAnalysisSummary(analysis);
+            StatusMessage = $"Grade atualizada: {DetectedBpm:0.##} BPM em {BeatGridOffsetSeconds:0.000} s.";
+        }
+        catch (Exception ex)
+        {
+            AppLogger.Error("Falha ao reanalisar BPM", ex);
+            StatusMessage = $"Não foi possível reanalisar o tempo: {ex.Message}";
+        }
+        finally
+        {
+            IsBusy = false;
+            OperationProgress = 0;
+            OperationStatus = string.Empty;
+        }
+    }
+
+    private static string FormatTempoAnalysisSummary(AudioTempoAnalysis analysis)
+    {
+        return $"Fonte: {analysis.SourceTrack} · confiança {analysis.Confidence:P0} · beat inicial {analysis.BeatGridOffsetSeconds:0.000} s";
+    }
+
     public void SaveProject(string filePath)
     {
-        ProjectName = Path.GetFileNameWithoutExtension(filePath);
-        var document = CreateProjectDocument();
-        var json = JsonSerializer.Serialize(document, new JsonSerializerOptions { WriteIndented = true });
-        File.WriteAllText(filePath, json);
-        CurrentProjectPath = filePath;
-        StatusMessage = $"Projeto salvo: {ProjectName}.";
-        SaveActiveProjectTab();
+        try
+        {
+            ProjectName = Path.GetFileNameWithoutExtension(filePath);
+            var document = CreateProjectDocument();
+            _projectFileService.Save(filePath, document);
+            CurrentProjectPath = Path.GetFullPath(filePath);
+            StatusMessage = $"Projeto salvo: {ProjectName}.";
+            SaveActiveProjectTab();
+            MarkActiveProjectSaved();
+        }
+        catch (Exception ex)
+        {
+            AppLogger.Error("Falha ao salvar projeto", ex);
+            StatusMessage = $"Não foi possível salvar o projeto: {ex.Message}";
+        }
     }
 
     public void SaveCurrentProject()
@@ -618,15 +824,17 @@ public partial class MainWindowViewModel : ViewModelBase
 
     public void OpenProject(string filePath)
     {
-        var json = File.ReadAllText(filePath);
-        var document = JsonSerializer.Deserialize<VsmixerProjectDocument>(json);
-        if (document is null)
+        try
         {
-            StatusMessage = "Nao foi possivel abrir o projeto.";
-            return;
+            var document = _projectFileService.Load(filePath);
+            LoadProjectDocument(document, Path.GetFullPath(filePath), $"Projeto aberto: {document.ProjectName}.", updateActiveTab: true);
+            MarkActiveProjectSaved();
         }
-
-        LoadProjectDocument(document, filePath, $"Projeto aberto: {document.ProjectName}.", updateActiveTab: true);
+        catch (Exception ex)
+        {
+            AppLogger.Error("Falha ao abrir projeto", ex);
+            StatusMessage = $"Não foi possível abrir o projeto: {ex.Message}";
+        }
     }
 
     public void SeekToProgress(double progress)
@@ -654,7 +862,10 @@ public partial class MainWindowViewModel : ViewModelBase
     [RelayCommand]
     private void NewProjectTab()
     {
-        SaveActiveProjectTab();
+        if (ActiveProjectTab is not null)
+        {
+            SaveStateToProjectTab(ActiveProjectTab);
+        }
         var projectNumber = ProjectTabs.Count + 1;
         var document = CreateEmptyProjectDocument($"Projeto {projectNumber}");
         var tab = new ProjectTabViewModel(document.ProjectName, null, document);
@@ -687,12 +898,42 @@ public partial class MainWindowViewModel : ViewModelBase
             return;
         }
 
+        if (tab.IsDirty)
+        {
+            DirtyTabCloseRequested?.Invoke(tab);
+            return;
+        }
+
+        CloseProjectTabCore(tab, index);
+    }
+
+    public void DiscardAndCloseProjectTab(ProjectTabViewModel tab)
+    {
+        var index = ProjectTabs.IndexOf(tab);
+        if (index >= 0 && ProjectTabs.Count > 1)
+        {
+            CloseProjectTabCore(tab, index);
+            SaveRecoverySnapshot();
+        }
+    }
+
+    public void DiscardRecoveryOnExit()
+    {
+        _discardRecoveryOnExit = true;
+        _recoveryService.Clear();
+    }
+
+    private void CloseProjectTabCore(ProjectTabViewModel tab, int index)
+    {
+
         var wasActive = tab == ActiveProjectTab;
         ProjectTabs.Remove(tab);
         if (wasActive)
         {
             ActiveProjectTab = ProjectTabs[Math.Clamp(index, 0, ProjectTabs.Count - 1)];
         }
+
+        OnPropertyChanged(nameof(HasUnsavedChanges));
     }
 
     private void LoadProjectDocument(VsmixerProjectDocument document, string? projectPath, string statusMessage, bool updateActiveTab)
@@ -706,6 +947,8 @@ public partial class MainWindowViewModel : ViewModelBase
         ProjectName = document.ProjectName;
         DetectedBpm = document.DetectedBpm;
         PlaybackBpm = document.PlaybackBpm;
+        BeatGridOffsetSeconds = document.BeatGridOffsetSeconds;
+        TempoAnalysisSummary = $"Grade carregada do projeto · início em {BeatGridOffsetSeconds:0.000} s";
         PitchOffset = document.PitchOffset;
         SelectedTimeSignature = document.SelectedTimeSignature;
         SelectedGrid = document.SelectedGrid;
@@ -728,12 +971,14 @@ public partial class MainWindowViewModel : ViewModelBase
         MasterBMidiMapping = document.MasterBMidiMapping;
         RefreshDeviceLists();
         SelectedAudioOutputDevice = AudioOutputDevices.FirstOrDefault(device => device.Id == document.AudioOutputDeviceId)
+            ?? AudioOutputDevices.FirstOrDefault(device => string.Equals(device.Name, document.AudioOutputDeviceName, StringComparison.OrdinalIgnoreCase))
             ?? AudioOutputDevices.FirstOrDefault();
         SelectedMidiController = MidiControllerDevices.FirstOrDefault(device => string.Equals(device.Name, document.MidiControllerName, StringComparison.OrdinalIgnoreCase))
             ?? MidiControllerDevices.FirstOrDefault(device => !device.IsPlaceholder);
         IsMidiControllerEnabled = document.MidiControllerEnabled;
 
         var paths = document.Tracks.Select(track => track.FilePath).Where(File.Exists).ToArray();
+        var missingTrackCount = document.Tracks.Count - paths.Length;
         var results = _audioEngine.LoadTracks(paths);
         var loaded = results.Where(result => result.IsLoaded).ToArray();
 
@@ -769,7 +1014,9 @@ public partial class MainWindowViewModel : ViewModelBase
         UpdateWaveformPeaks();
         _durationSeconds = Math.Max(0, _audioEngine.DurationSeconds);
         UpdateClockFields(0);
-        StatusMessage = statusMessage;
+        StatusMessage = missingTrackCount == 0
+            ? statusMessage
+            : $"{statusMessage} {missingTrackCount} arquivo(s) de áudio não foram encontrados.";
         _isRestoringProjectTab = false;
 
         if (updateActiveTab && ActiveProjectTab is not null)
@@ -783,6 +1030,117 @@ public partial class MainWindowViewModel : ViewModelBase
         if (ActiveProjectTab is not null)
         {
             SaveStateToProjectTab(ActiveProjectTab);
+            MarkActiveProjectDirty();
+        }
+    }
+
+    private void MarkActiveProjectDirty()
+    {
+        if (_isRestoringProjectTab || ActiveProjectTab is null)
+        {
+            return;
+        }
+
+        ActiveProjectTab.IsDirty = true;
+        OnPropertyChanged(nameof(HasUnsavedChanges));
+    }
+
+    private void MarkActiveProjectSaved()
+    {
+        if (ActiveProjectTab is null)
+        {
+            return;
+        }
+
+        ActiveProjectTab.IsDirty = false;
+        OnPropertyChanged(nameof(HasUnsavedChanges));
+        if (!HasUnsavedChanges)
+        {
+            _recoveryService.Clear();
+        }
+    }
+
+    private void SaveRecoverySnapshot()
+    {
+        if (_discardRecoveryOnExit)
+        {
+            return;
+        }
+
+        if (!HasUnsavedChanges)
+        {
+            _recoveryService.Clear();
+            return;
+        }
+
+        try
+        {
+            if (ActiveProjectTab is not null)
+            {
+                SaveStateToProjectTab(ActiveProjectTab);
+            }
+
+            var projects = ProjectTabs
+                .Where(tab => tab.IsDirty)
+                .Select(tab => new RecoveryProject
+                {
+                    ProjectPath = tab.ProjectPath,
+                    Document = tab.Document
+                })
+                .ToArray();
+            _recoveryService.Save(projects);
+        }
+        catch (Exception ex)
+        {
+            AppLogger.Error("Falha no salvamento de recuperação", ex);
+        }
+    }
+
+    private void TryRestoreRecovery()
+    {
+        try
+        {
+            var snapshot = _recoveryService.Load();
+            if (snapshot?.Projects.Count is not > 0)
+            {
+                return;
+            }
+
+            ProjectTabs.Clear();
+            foreach (var recovered in snapshot.Projects)
+            {
+                ProjectTabs.Add(new ProjectTabViewModel(
+                    recovered.Document.ProjectName,
+                    recovered.ProjectPath,
+                    recovered.Document)
+                {
+                    IsDirty = true
+                });
+            }
+
+            ActiveProjectTab = ProjectTabs[0];
+            ActiveProjectTab.IsActive = true;
+            LoadProjectDocument(
+ActiveProjectTab.Document,
+ActiveProjectTab.ProjectPath,
+                $"Sessão recuperada de {snapshot.SavedAtUtc.ToLocalTime():g}.",
+                updateActiveTab: false);
+            OnPropertyChanged(nameof(ActiveProjectTab));
+            OnPropertyChanged(nameof(HasUnsavedChanges));
+        }
+        catch (Exception ex)
+        {
+            AppLogger.Error("Falha ao restaurar sessão", ex);
+            _recoveryService.Clear();
+        }
+    }
+
+    private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        _ = sender;
+        if (e.PropertyName is not null && PersistedPropertyNames.Contains(e.PropertyName))
+        {
+            MarkActiveProjectDirty();
         }
     }
 
@@ -804,9 +1162,14 @@ public partial class MainWindowViewModel : ViewModelBase
     [RelayCommand]
     private void TogglePlayback()
     {
+        if (IsBusy)
+        {
+            return;
+        }
+
         if (!HasImportedAudio && !MetronomeEnabled)
         {
-            StatusMessage = "Importe uma track ou habilite o metronomo antes de tocar.";
+            StatusMessage = "Importe uma track ou habilite o metrônomo antes de tocar.";
             return;
         }
 
@@ -820,7 +1183,7 @@ public partial class MainWindowViewModel : ViewModelBase
             }
 
             StartMetronome(playFirstClick: MetronomeEnabled);
-            StatusMessage = HasImportedAudio ? "Tocando." : "Metronomo tocando.";
+            StatusMessage = HasImportedAudio ? "Tocando." : "Metrônomo tocando.";
         }
         else
         {
@@ -845,6 +1208,52 @@ public partial class MainWindowViewModel : ViewModelBase
         ClearQueuedSession();
         _activePlaybackSession = null;
         UpdateClockFields(0);
+    }
+
+    [RelayCommand]
+    private void EmergencyStop()
+    {
+        IsPlaying = false;
+        _audioEngine.Pause();
+        _audioEngine.StopGuideVoice();
+        _audioEngine.StopPad();
+        StopMetronome();
+        PadContinuousEnabled = false;
+        _lastGuideVoiceKey = null;
+        ClearQueuedSession();
+        StatusMessage = "Reprodução interrompida.";
+    }
+
+    [RelayCommand]
+    private void MarkCurrentPositionAsBarStart()
+    {
+        if (!HasImportedAudio)
+        {
+            StatusMessage = "Importe áudio antes de marcar o compasso 1.1.";
+            return;
+        }
+
+        BeatGridOffsetSeconds = _audioEngine.CurrentPositionSeconds;
+        StatusMessage = $"Compasso 1.1 marcado em {BeatGridOffsetSeconds:0.000} s.";
+    }
+
+    [RelayCommand]
+    private void AdjustBeatGridOffset(string amountMilliseconds)
+    {
+        if (!double.TryParse(amountMilliseconds, NumberStyles.Float, CultureInfo.InvariantCulture, out var milliseconds))
+        {
+            return;
+        }
+
+        BeatGridOffsetSeconds = Math.Max(0, BeatGridOffsetSeconds + milliseconds / 1000d);
+        StatusMessage = $"Grade ajustada para {BeatGridOffsetSeconds:0.000} s.";
+    }
+
+    [RelayCommand]
+    private void ResetBeatGridOffset()
+    {
+        BeatGridOffsetSeconds = 0;
+        StatusMessage = "Início da grade redefinido para 0.000 s.";
     }
 
     [RelayCommand]
@@ -876,7 +1285,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
         if (SessionNameOptions.Count == 0)
         {
-            SessionNameOptions.Add($"Sessao {SessionRegions.Count + 1}");
+            SessionNameOptions.Add($"Sessão {SessionRegions.Count + 1}");
         }
 
         NewSessionName = SessionNameOptions.First();
@@ -986,7 +1395,7 @@ public partial class MainWindowViewModel : ViewModelBase
         var end = start + length - 1;
         var color = _sectionColors[SessionRegions.Count % _sectionColors.Length];
         SessionRegions.Add(new SessionRegionViewModel(source.Name, start, end, color));
-        StatusMessage = $"Sessao duplicada no fim: {source.Name}.";
+        StatusMessage = $"Sessão duplicada no fim: {source.Name}.";
         CloseSessionActionsModal();
         SaveActiveProjectTab();
     }
@@ -1020,7 +1429,7 @@ public partial class MainWindowViewModel : ViewModelBase
     {
         if (!HasImportedAudio)
         {
-            StatusMessage = "Importe pelo menos uma track antes de iniciar uma sessao.";
+            StatusMessage = "Importe pelo menos uma track antes de iniciar uma sessão.";
             return;
         }
 
@@ -1035,7 +1444,7 @@ public partial class MainWindowViewModel : ViewModelBase
         if (IsPlaying && currentSession is not null && !ReferenceEquals(currentSession, session))
         {
             SetQueuedSession(session);
-            StatusMessage = $"Sessao agendada: {session.Name}.";
+            StatusMessage = $"Sessão agendada: {session.Name}.";
             return;
         }
 
@@ -1115,7 +1524,7 @@ public partial class MainWindowViewModel : ViewModelBase
     [RelayCommand]
     private void AddSession()
     {
-        var name = string.IsNullOrWhiteSpace(NewSessionName) ? $"Sessao {SessionRegions.Count + 1}" : NewSessionName.Trim();
+        var name = string.IsNullOrWhiteSpace(NewSessionName) ? $"Sessão {SessionRegions.Count + 1}" : NewSessionName.Trim();
         var start = Math.Max(1, Math.Min(NewSessionStartMeasure, NewSessionEndMeasure));
         var end = Math.Max(start, Math.Max(NewSessionStartMeasure, NewSessionEndMeasure));
 
@@ -1187,6 +1596,7 @@ public partial class MainWindowViewModel : ViewModelBase
             or nameof(TrackChannelViewModel.IsSolo))
         {
             ApplyMixerStates();
+            MarkActiveProjectDirty();
         }
     }
 
@@ -1265,7 +1675,7 @@ public partial class MainWindowViewModel : ViewModelBase
         }
 
         UpdateClockFields(targetSeconds);
-        StatusMessage = $"Tocando sessao: {session.Name}.";
+        StatusMessage = $"Tocando sessão: {session.Name}.";
     }
 
     private void SetQueuedSession(SessionRegionViewModel session)
@@ -1287,6 +1697,12 @@ public partial class MainWindowViewModel : ViewModelBase
 
     private void UpdateTransport()
     {
+        if (IsBusy)
+        {
+            UpdatePerformanceUsage();
+            return;
+        }
+
         var position = HasImportedAudio ? _audioEngine.CurrentPositionSeconds : 0;
         UpdateScheduledSessionPlayback(position);
         position = HasImportedAudio ? _audioEngine.CurrentPositionSeconds : 0;
@@ -1303,7 +1719,7 @@ public partial class MainWindowViewModel : ViewModelBase
             _lastGuideVoiceKey = null;
             ClearQueuedSession();
             _activePlaybackSession = null;
-            StatusMessage = "Fim da reproducao.";
+            StatusMessage = "Fim da reprodução.";
         }
     }
 
@@ -1376,7 +1792,7 @@ public partial class MainWindowViewModel : ViewModelBase
         var padPath = ResolveAssetPath("Assets", "Pads-Continuos", fileName);
         if (!_audioEngine.PlayPad(padPath))
         {
-            StatusMessage = _audioEngine.LastError ?? $"Nao foi possivel tocar o pad {SelectedPadNote}.";
+            StatusMessage = _audioEngine.LastError ?? $"Não foi possível tocar o pad {SelectedPadNote}.";
             return;
         }
 
@@ -1413,7 +1829,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
         if (!_audioEngine.PlayGuideVoice(guidePath))
         {
-            StatusMessage = _audioEngine.LastError ?? $"Nao foi possivel tocar a voz guia: {session.Name}.";
+            StatusMessage = _audioEngine.LastError ?? $"Não foi possível tocar a voz guia: {session.Name}.";
         }
     }
 
@@ -1465,7 +1881,7 @@ public partial class MainWindowViewModel : ViewModelBase
     private void RefreshSessionCopyOptions()
     {
         SessionCopyOptions.Clear();
-        SessionCopyOptions.Add(new SessionCopyOptionViewModel("Nao copiar", 0, isNone: true));
+        SessionCopyOptions.Add(new SessionCopyOptionViewModel("Não copiar", 0, isNone: true));
 
         foreach (var session in SessionRegions.OrderBy(session => session.StartMeasure))
         {
@@ -1544,21 +1960,22 @@ public partial class MainWindowViewModel : ViewModelBase
             || name.Contains("percussão", StringComparison.Ordinal);
     }
 
-    private static bool TryParseBpm(string value, out int bpm)
+    private static bool TryParseBpm(string value, out double bpm)
     {
         bpm = 0;
-        if (!int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed))
+        var normalized = value.Replace(',', '.');
+        if (!double.TryParse(normalized, NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed))
         {
             return false;
         }
 
-        bpm = Math.Clamp(parsed, 1, 300);
+        bpm = Math.Round(Math.Clamp(parsed, 1, 300), 2);
         return true;
     }
 
-    private void SyncBpmText(string propertyName, string currentValue, int bpm)
+    private void SyncBpmText(string propertyName, string currentValue, double bpm)
     {
-        var nextValue = bpm.ToString(CultureInfo.InvariantCulture);
+        var nextValue = bpm.ToString("0.##", CultureInfo.InvariantCulture);
         if (string.Equals(currentValue, nextValue, StringComparison.Ordinal))
         {
             return;
@@ -1680,81 +2097,82 @@ public partial class MainWindowViewModel : ViewModelBase
 
     private void StartMetronome(bool playFirstClick)
     {
-        _metronomeBeatIndex = 0;
-        _metronomeClock.Restart();
-
-        if (playFirstClick)
+        var gridBeatLength = GetGridBeatLength();
+        var stepsPerMeasure = Math.Max(1, (int)Math.Round(GetBeatsPerMeasure() / gridBeatLength));
+        var intervalSeconds = GetBeatIntervalSeconds();
+        if (!HasImportedAudio)
         {
-            _audioEngine.PlayMetronomeClick(isAccent: true);
-            _metronomeBeatIndex = 1;
-            _nextMetronomeBeatSeconds = GetBeatIntervalSeconds();
+            _metronomeScheduler.Start(intervalSeconds, stepsPerMeasure, 0, 0, playFirstClick);
             return;
         }
 
-        _nextMetronomeBeatSeconds = 0;
+        var positionSeconds = _audioEngine.CurrentPositionSeconds;
+        var sourceStepSeconds = 60d / Math.Max(1, DetectedBpm) * gridBeatLength;
+        var tempoRatio = PlaybackBpm / Math.Max(1, DetectedBpm);
+        var relativeSeconds = positionSeconds - BeatGridOffsetSeconds;
+        if (relativeSeconds < -0.001)
+        {
+            var delay = -relativeSeconds / Math.Max(0.01, tempoRatio);
+            _metronomeScheduler.Start(intervalSeconds, stepsPerMeasure, 0, delay, playImmediately: false);
+            return;
+        }
+
+        var stepPosition = Math.Max(0, relativeSeconds) / sourceStepSeconds;
+        var nearestStep = Math.Round(stepPosition);
+        var isOnGrid = Math.Abs(stepPosition - nearestStep) <= 0.025;
+        if (playFirstClick && isOnGrid)
+        {
+            _metronomeScheduler.Start(
+                intervalSeconds,
+                stepsPerMeasure,
+                (int)nearestStep,
+                0,
+                playImmediately: true);
+            return;
+        }
+
+        var nextStep = (int)Math.Floor(stepPosition) + 1;
+        var sourceDelay = (nextStep - stepPosition) * sourceStepSeconds;
+        var playbackDelay = sourceDelay / Math.Max(0.01, tempoRatio);
+        _metronomeScheduler.Start(
+            intervalSeconds,
+            stepsPerMeasure,
+            nextStep,
+            playbackDelay,
+            playImmediately: false);
     }
 
     private void StopMetronome()
     {
-        _metronomeClock.Reset();
-        _nextMetronomeBeatSeconds = 0;
-        _metronomeBeatIndex = 0;
+        _metronomeScheduler.Stop();
     }
 
     private void RescheduleMetronome()
-    {
-        if (!IsPlaying || !MetronomeEnabled || !_metronomeClock.IsRunning)
-        {
-            return;
-        }
-
-        _nextMetronomeBeatSeconds = _metronomeClock.Elapsed.TotalSeconds + GetBeatIntervalSeconds();
-    }
-
-    private void UpdateMetronome()
     {
         if (!IsPlaying || !MetronomeEnabled)
         {
             return;
         }
 
-        if (!_metronomeClock.IsRunning)
-        {
-            StartMetronome(playFirstClick: true);
-            return;
-        }
-
-        var interval = GetBeatIntervalSeconds();
-        var elapsed = _metronomeClock.Elapsed.TotalSeconds;
-        var guard = 0;
-        while (elapsed + 0.015 >= _nextMetronomeBeatSeconds && guard < 3)
-        {
-            _audioEngine.PlayMetronomeClick(IsAccentBeat(_metronomeBeatIndex));
-            _metronomeBeatIndex++;
-            _nextMetronomeBeatSeconds += interval;
-            guard++;
-        }
-    }
-
-    private bool IsAccentBeat(int beatIndex)
-    {
-        var beatPosition = beatIndex * GetGridBeatLength();
-        var measureRemainder = beatPosition % GetBeatsPerMeasure();
-        return Math.Abs(measureRemainder) < 0.0001 || Math.Abs(measureRemainder - GetBeatsPerMeasure()) < 0.0001;
+        StartMetronome(playFirstClick: false);
     }
 
     private int GetMeasureAtPosition(double positionSeconds)
     {
-        var bpm = Math.Max(1, DetectedBpm);
-        var totalBeats = Math.Max(0, positionSeconds) * bpm / 60d;
-        return (int)Math.Floor(totalBeats / GetBeatsPerMeasure()) + 1;
+        return BeatGridCalculator.GetMeasure(
+            positionSeconds,
+            DetectedBpm,
+            BeatGridOffsetSeconds,
+            GetBeatsPerMeasure());
     }
 
     private double GetMeasureStartSeconds(int measure)
     {
-        var bpm = Math.Max(1, DetectedBpm);
-        var beatsBeforeMeasure = Math.Max(0, measure - 1) * GetBeatsPerMeasure();
-        return beatsBeforeMeasure * 60d / bpm;
+        return BeatGridCalculator.GetMeasureStart(
+            measure,
+            DetectedBpm,
+            BeatGridOffsetSeconds,
+            GetBeatsPerMeasure());
     }
 
     private SessionRegionViewModel? GetSessionAtPosition(double positionSeconds)
@@ -1795,6 +2213,7 @@ public partial class MainWindowViewModel : ViewModelBase
             ProjectName = ProjectName,
             DetectedBpm = DetectedBpm,
             PlaybackBpm = PlaybackBpm,
+            BeatGridOffsetSeconds = BeatGridOffsetSeconds,
             PitchOffset = PitchOffset,
             SelectedTimeSignature = SelectedTimeSignature,
             SelectedGrid = SelectedGrid,
@@ -1991,10 +2410,10 @@ public partial class MainWindowViewModel : ViewModelBase
         foreach (var device in _audioEngine.GetOutputDevices())
         {
             var detail = device.Id == -1
-                ? "Saida"
+                ? "Saída"
                 : device.IsDefault
-                    ? "Saida padrao"
-                    : "Saida";
+                    ? "Saída padrão"
+                    : "Saída";
             AudioOutputDevices.Add(new DeviceOptionViewModel(device.Name, detail, device.Id, !device.IsEnabled));
         }
 
@@ -2015,7 +2434,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
         if (AudioOutputDevices.Count == 0)
         {
-            AudioOutputDevices.Add(new DeviceOptionViewModel("Nenhuma saida de audio encontrada", string.Empty, -999, true));
+            AudioOutputDevices.Add(new DeviceOptionViewModel("Nenhuma saída de áudio encontrada", string.Empty, -999, true));
         }
 
         if (MidiControllerDevices.Count == 0)
@@ -2041,7 +2460,7 @@ public partial class MainWindowViewModel : ViewModelBase
         if (SelectedMidiController is null || SelectedMidiController.IsPlaceholder)
         {
             _midiControlService.StopListening();
-            StatusMessage = "Nenhum controlador MIDI disponivel.";
+            StatusMessage = "Nenhum controlador MIDI disponível.";
             return;
         }
 
@@ -2053,7 +2472,7 @@ public partial class MainWindowViewModel : ViewModelBase
         catch (Exception ex)
         {
             _midiControlService.StopListening();
-            StatusMessage = $"Nao foi possivel habilitar MIDI: {ex.Message}";
+            StatusMessage = $"Não foi possível habilitar MIDI: {ex.Message}";
         }
     }
 
@@ -2064,16 +2483,49 @@ public partial class MainWindowViewModel : ViewModelBase
         BarClock = FormatBarClock(positionSeconds);
     }
 
+    public void Dispose()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
+        _operationCancellation?.Cancel();
+        _operationCancellation?.Dispose();
+        _meterTimer.Stop();
+        _metronomeScheduler.Dispose();
+        _recoveryTimer.Stop();
+        if (_discardRecoveryOnExit || !HasUnsavedChanges)
+        {
+            _recoveryService.Clear();
+        }
+        else
+        {
+            SaveRecoverySnapshot();
+        }
+        _midiControlService.MessageReceived -= OnMidiMessageReceived;
+        PropertyChanged -= OnViewModelPropertyChanged;
+        _midiControlService.Dispose();
+        _audioEngine.Dispose();
+        _currentProcess.Dispose();
+        ClearTracks();
+        GC.SuppressFinalize(this);
+    }
+
+    private sealed record AudioImportOutcome(
+        IReadOnlyList<AudioTrackLoadResult> Results,
+        IReadOnlyList<double> Waveform,
+        double DurationSeconds,
+        AudioTempoAnalysis? TempoAnalysis);
+
     private string FormatBarClock(double positionSeconds)
     {
-        var bpm = Math.Max(1, DetectedBpm);
-        var beatsPerMeasure = GetBeatsPerMeasure();
-        var totalBeats = positionSeconds * bpm / 60d;
-        var wholeBeat = Math.Max(0, (int)Math.Floor(totalBeats));
-        var measure = wholeBeat / beatsPerMeasure + 1;
-        var beat = wholeBeat % beatsPerMeasure + 1;
-        var tick = (int)Math.Floor((totalBeats - wholeBeat) * 100) + 1;
-        return $"{measure}.{beat}.{tick:00}";
+        return BeatGridCalculator.FormatBarClock(
+            positionSeconds,
+            DetectedBpm,
+            BeatGridOffsetSeconds,
+            GetBeatsPerMeasure());
     }
 
     private static string FormatTime(double seconds)

@@ -1,41 +1,51 @@
 # VSMixer
 
-VSMixer is a C# multitrack playback app for Windows and macOS.
+Reprodutor multitrack para Windows e macOS, voltado a ensaios e apresentações ao vivo.
 
-## Stack
+## Recursos
 
-- UI: Avalonia, chosen for one C#/.NET desktop UI codebase across Windows and macOS.
-- Audio engine: ManagedBass with BASS add-ons, prepared for multitrack playback, mixing, tempo, and pitch control.
-- MIDI: Melanchall.DryWetMidi, prepared for play/pause and future controller mappings.
+- Reprodução sincronizada de múltiplas tracks, com mute, solo e roteamento A/B.
+- Alteração de BPM e pitch, sessões, loop, metrônomo, voz guia e pads contínuos.
+- BPM decimal e grade de beats com offset automático/manual para manter contador, sessões e metrônomo alinhados ao áudio.
+- Controle e mapeamento MIDI.
+- Projetos portáveis `.vsmixer`, com caminhos relativos e versão de formato.
+- Autosave de recuperação e proteção contra fechamento com alterações não salvas.
+- Importação e análise de waveform/BPM em background.
 
-## Current Prototype
+## Atalhos
 
-- Dark mixer layout close to the first visual reference.
-- Top transport bar with play/pause, rewind, timers, BPM, meter, grid, pitch, metronome, guide voice, and pad toggles.
-- Timeline with time ruler, summed waveform placeholder, measure ruler, and colored session regions.
-- Add-session modal with name, start measure, and end measure fields.
-- Vertical track strips with volume, pan, mute, solo, delete, and level meter placeholders.
-- Master volume footer.
-- Multitrack import through the `+ ADICIONAR` button.
-- Play/pause starts and pauses all imported audio streams.
+| Ação | Atalho |
+| --- | --- |
+| Play/Pausa | `Espaço` |
+| Voltar ao início | `Home` |
+| Parada de emergência | `Esc` |
+| Salvar | `Ctrl+S` / `Cmd+S` |
 
-## Native Audio
+## Desenvolvimento
 
-ManagedBass needs the native BASS library at runtime. This project includes:
+Requer o SDK .NET 10.
 
-- `Native/win-x64/bass.dll`
-- `Native/osx/libbass.dylib`
-
-The project file copies the native library for the current build OS into the app output folder.
-
-## Run
-
-```powershell
+```bash
+dotnet restore VSMixer.slnx
 dotnet run --project VSMixer.csproj
+dotnet test VSMixer.slnx
+dotnet format VSMixer.slnx --verify-no-changes
 ```
 
-## Build
+O CI executa formatação, build, testes e auditoria de pacotes no Windows e macOS.
 
-```powershell
-dotnet build
+## Publicação
+
+```bash
+dotnet publish VSMixer.csproj -p:PublishProfile=win-x64
+dotnet publish VSMixer.csproj -p:PublishProfile=osx-x64
 ```
+
+A publicação `osx-arm64` é intencionalmente bloqueada enquanto não existir
+`Native/osx-arm64/libbass_fx.dylib` oficial com arquitetura ARM64. Isso impede a geração de um app incompatível para Apple Silicon.
+
+Consulte [Arquitetura](docs/ARCHITECTURE.md) e [Processo de release](docs/RELEASE.md).
+
+## Dependências nativas e licenças
+
+ManagedBass é apenas o wrapper .NET. As bibliotecas nativas BASS/BASS_FX possuem termos próprios; confirme a licença comercial antes de distribuir ou vender o aplicativo. Os arquivos de áudio incluídos também devem possuir autorização explícita de distribuição.

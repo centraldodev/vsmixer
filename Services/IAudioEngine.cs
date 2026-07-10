@@ -1,8 +1,6 @@
-using System.Collections.Generic;
-
 namespace VSMixer.Services;
 
-public interface IAudioEngine
+public interface IAudioEngine : IDisposable
 {
     bool IsReady { get; }
     string? LastError { get; }
@@ -14,7 +12,7 @@ public interface IAudioEngine
     bool SetOutputDevice(int deviceId);
     IReadOnlyList<AudioTrackLoadResult> LoadTracks(IEnumerable<string> filePaths);
     IReadOnlyList<double> GetSummedWaveform(int peakCount);
-    int? DetectBpm();
+    AudioTempoAnalysis? AnalyzeTempo();
     void Play();
     void Pause();
     void SeekToStart();

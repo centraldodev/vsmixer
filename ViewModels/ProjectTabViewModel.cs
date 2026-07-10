@@ -19,11 +19,14 @@ public partial class ProjectTabViewModel : ViewModelBase
     private bool _isActive;
 
     [ObservableProperty]
+    private bool _isDirty;
+
+    [ObservableProperty]
     private MidiMapping? _selectMidiMapping;
 
     public string? ProjectPath { get; set; }
     public VsmixerProjectDocument Document { get; set; }
-    public string DisplayName => Name;
+    public string DisplayName => IsDirty ? $"● {Name}" : Name;
     public string MidiMappingMenuLabel => SelectMidiMapping is null ? "Mapear MIDI..." : $"Remapear MIDI ({SelectMidiMapping.DisplayName})";
     public bool HasMidiMapping => SelectMidiMapping is not null;
 
@@ -34,6 +37,12 @@ public partial class ProjectTabViewModel : ViewModelBase
     }
 
     partial void OnIsActiveChanged(bool value)
+    {
+        _ = value;
+        OnPropertyChanged(nameof(DisplayName));
+    }
+
+    partial void OnIsDirtyChanged(bool value)
     {
         _ = value;
         OnPropertyChanged(nameof(DisplayName));

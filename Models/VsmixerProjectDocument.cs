@@ -1,12 +1,14 @@
-using System.Collections.Generic;
-
 namespace VSMixer.Models;
 
 public sealed class VsmixerProjectDocument
 {
+    public const int CurrentSchemaVersion = 3;
+
+    public int SchemaVersion { get; set; } = CurrentSchemaVersion;
     public string ProjectName { get; set; } = "Projeto 1";
-    public int DetectedBpm { get; set; } = 133;
-    public int PlaybackBpm { get; set; } = 133;
+    public double DetectedBpm { get; set; } = 133;
+    public double PlaybackBpm { get; set; } = 133;
+    public double BeatGridOffsetSeconds { get; set; }
     public int PitchOffset { get; set; }
     public string SelectedTimeSignature { get; set; } = "4/4";
     public string SelectedGrid { get; set; } = "1/4";

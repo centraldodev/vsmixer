@@ -1,9 +1,8 @@
-using System;
 using VSMixer.Models;
 
 namespace VSMixer.Services;
 
-public interface IMidiControlService
+public interface IMidiControlService : IDisposable
 {
     event EventHandler<MidiMessageReceivedEventArgs>? MessageReceived;
     void StartListening(string? deviceName);

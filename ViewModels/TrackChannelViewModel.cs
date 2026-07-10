@@ -1,4 +1,3 @@
-using System.IO;
 using CommunityToolkit.Mvvm.ComponentModel;
 using VSMixer.Models;
 
@@ -40,6 +39,8 @@ public partial class TrackChannelViewModel : ViewModelBase
     public string FileName => string.IsNullOrWhiteSpace(FilePath)
         ? Name
         : Path.GetFileName(FilePath);
+    public string VolumeDb => Volume <= 0.001 ? "−∞ dB" : $"{20 * Math.Log10(Volume):0.0} dB";
+    public bool IsClipping => Level >= 0.98;
 
     public bool IsMasterA
     {
@@ -69,5 +70,17 @@ public partial class TrackChannelViewModel : ViewModelBase
     {
         OnPropertyChanged(nameof(IsMasterA));
         OnPropertyChanged(nameof(IsMasterB));
+    }
+
+    partial void OnVolumeChanged(double value)
+    {
+        _ = value;
+        OnPropertyChanged(nameof(VolumeDb));
+    }
+
+    partial void OnLevelChanged(double value)
+    {
+        _ = value;
+        OnPropertyChanged(nameof(IsClipping));
     }
 }

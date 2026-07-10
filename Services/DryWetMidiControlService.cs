@@ -1,5 +1,3 @@
-using System;
-using System.Collections.Generic;
 using Melanchall.DryWetMidi.Core;
 using Melanchall.DryWetMidi.Multimedia;
 using VSMixer.Models;
@@ -41,6 +39,12 @@ public sealed class DryWetMidiControlService : IMidiControlService
         }
 
         _devices.Clear();
+    }
+
+    public void Dispose()
+    {
+        StopListening();
+        GC.SuppressFinalize(this);
     }
 
     private void OnMidiEventReceived(object? sender, MidiEventReceivedEventArgs e)
