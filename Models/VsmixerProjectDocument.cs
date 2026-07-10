@@ -20,6 +20,8 @@ public sealed class VsmixerProjectDocument
     public bool GuideVoiceEnabled { get; set; } = true;
     public double GuideVoiceVolume { get; set; } = 0.85;
     public double GuideVoicePan { get; set; }
+    public bool PreCountEnabled { get; set; }
+    public int PreCountMeasures { get; set; } = 1;
     public bool PadContinuousEnabled { get; set; }
     public string SelectedPadNote { get; set; } = "C";
     public int AudioOutputDeviceId { get; set; } = -1;
@@ -52,4 +54,5 @@ public sealed class ProjectSessionDocument
     public int EndMeasure { get; set; }
     public string Color { get; set; } = "#2f7dff";
     public bool IsLooping { get; set; }
+    public bool PreCountEnabled { get; set; }
 }

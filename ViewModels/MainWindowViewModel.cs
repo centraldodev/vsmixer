@@ -41,6 +41,8 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
         nameof(GuideVoiceEnabled),
         nameof(GuideVoiceVolume),
         nameof(GuideVoicePan),
+        nameof(PreCountEnabled),
+        nameof(PreCountMeasures),
         nameof(PadContinuousEnabled),
         nameof(SelectedPadNote),
         nameof(SelectedAudioOutputDevice),
@@ -82,6 +84,11 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
     private readonly DispatcherTimer _meterTimer;
     private readonly DispatcherTimer _recoveryTimer;
     private readonly MetronomeScheduler _metronomeScheduler;
+    private readonly Stopwatch _virtualClock = new();
+    private double _virtualPositionBaseSeconds;
+    private double _virtualClockRatio = 1;
+    private int _metronomeStepsPerMeasure = 4;
+    private DispatcherTimer? _countInTimer;
     private double _durationSeconds;
     private string? _lastGuideVoiceKey;
     private bool _isRestoringProjectTab;
@@ -121,7 +128,7 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
         _midiControlService = midiControlService;
         _projectFileService = projectFileService;
         _recoveryService = recoveryService;
-        _metronomeScheduler = new MetronomeScheduler(isAccent => _audioEngine.PlayMetronomeClick(isAccent));
+        _metronomeScheduler = new MetronomeScheduler(OnMetronomeSchedulerBeat);
         _meterTimer = new DispatcherTimer
         {
             Interval = TimeSpan.FromMilliseconds(55)
@@ -229,6 +236,18 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
 
     [ObservableProperty]
     private double _guideVoicePan = -1;
+
+    [ObservableProperty]
+    private bool _preCountEnabled;
+
+    [ObservableProperty]
+    private int _preCountMeasures = 1;
+
+    [ObservableProperty]
+    private bool _isCountingIn;
+
+    [ObservableProperty]
+    private bool _newSessionPreCountEnabled;
 
     [ObservableProperty]
     private bool _padContinuousEnabled;
@@ -434,7 +453,7 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
     partial void OnSelectedTimeSignatureChanged(string value)
     {
         _ = value;
-        UpdateClockFields(_audioEngine.CurrentPositionSeconds);
+        UpdateClockFields(GetPlaybackPositionSeconds());
         if (IsPlaying && MetronomeEnabled)
         {
             StartMetronome(playFirstClick: true);
@@ -460,7 +479,7 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
         DetectedBpm = Math.Round(Math.Clamp(value, 1, 300), 2);
         SyncBpmText(nameof(DetectedBpmText), DetectedBpmText, DetectedBpm);
         ApplyPlaybackTempo();
-        UpdateClockFields(_audioEngine.CurrentPositionSeconds);
+        UpdateClockFields(GetPlaybackPositionSeconds());
         RescheduleMetronome();
     }
 
@@ -476,7 +495,7 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
     {
         BeatGridOffsetSeconds = Math.Max(0, Math.Round(value, 3));
         OnPropertyChanged(nameof(BeatGridOffsetText));
-        UpdateClockFields(_audioEngine.CurrentPositionSeconds);
+        UpdateClockFields(GetPlaybackPositionSeconds());
         RescheduleMetronome();
     }
 
@@ -535,6 +554,11 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
         }
 
         StatusMessage = value ? "Voz guia ligada." : "Voz guia desligada.";
+    }
+
+    partial void OnPreCountMeasuresChanged(int value)
+    {
+        PreCountMeasures = Math.Clamp(value, 1, 4);
     }
 
     partial void OnPadContinuousEnabledChanged(bool value)
@@ -635,8 +659,10 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
         IsBusy = true;
         OperationProgress = 0;
         OperationStatus = "Preparando importação...";
+        CancelCountIn();
         IsPlaying = false;
         _audioEngine.Pause();
+        SetVirtualClockRunning(false);
         _audioEngine.StopGuideVoice();
         StopMetronome();
         _lastGuideVoiceKey = null;
@@ -754,8 +780,10 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
             return;
         }
 
+        CancelCountIn();
         IsPlaying = false;
         _audioEngine.Pause();
+        SetVirtualClockRunning(false);
         StopMetronome();
         IsBusy = true;
         OperationProgress = 0.25;
@@ -846,6 +874,7 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
 
         var targetSeconds = Math.Clamp(progress, 0, 1) * _durationSeconds;
         _audioEngine.Seek(targetSeconds);
+        SeekVirtualClock(targetSeconds);
         _audioEngine.StopGuideVoice();
         _lastGuideVoiceKey = null;
         ClearQueuedSession();
@@ -939,8 +968,10 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
     private void LoadProjectDocument(VsmixerProjectDocument document, string? projectPath, string statusMessage, bool updateActiveTab)
     {
         _isRestoringProjectTab = true;
+        CancelCountIn();
         IsPlaying = false;
         _audioEngine.Pause();
+        ResetVirtualClock();
         _audioEngine.StopGuideVoice();
         StopMetronome();
         _lastGuideVoiceKey = null;
@@ -960,6 +991,8 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
         GuideVoiceEnabled = document.GuideVoiceEnabled;
         GuideVoiceVolume = document.GuideVoiceVolume;
         GuideVoicePan = document.GuideVoicePan;
+        PreCountEnabled = document.PreCountEnabled;
+        PreCountMeasures = document.PreCountMeasures;
         SelectedPadNote = PadNotes.Contains(document.SelectedPadNote) ? document.SelectedPadNote : "C";
         PadContinuousEnabled = document.PadContinuousEnabled;
         SelectedMidiControlBank = MidiControlBanks.Contains(document.MidiControlBank)
@@ -1002,7 +1035,8 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
         {
             SessionRegions.Add(new SessionRegionViewModel(session.Name, session.StartMeasure, session.EndMeasure, session.Color)
             {
-                IsLooping = session.IsLooping
+                IsLooping = session.IsLooping,
+                PreCountEnabled = session.PreCountEnabled
             });
         }
 
@@ -1167,41 +1201,58 @@ ActiveProjectTab.ProjectPath,
             return;
         }
 
-        if (!HasImportedAudio && !MetronomeEnabled)
+        if (IsCountingIn)
         {
-            StatusMessage = "Importe uma track ou habilite o metrônomo antes de tocar.";
+            CancelCountIn();
+            StatusMessage = "Pré-contagem cancelada.";
             return;
         }
 
-        IsPlaying = !IsPlaying;
+        if (!HasImportedAudio && !MetronomeEnabled && !GuideVoiceEnabled && SessionRegions.Count == 0)
+        {
+            StatusMessage = "Importe uma track, habilite o metrônomo ou crie uma sessão antes de tocar.";
+            return;
+        }
+
         if (IsPlaying)
         {
-            if (HasImportedAudio)
-            {
-                _audioEngine.Play();
-                _activePlaybackSession = GetSessionAtPosition(_audioEngine.CurrentPositionSeconds);
-            }
-
-            StartMetronome(playFirstClick: MetronomeEnabled);
-            StatusMessage = HasImportedAudio ? "Tocando." : "Metrônomo tocando.";
-        }
-        else
-        {
+            IsPlaying = false;
             _audioEngine.Pause();
+            SetVirtualClockRunning(false);
             _audioEngine.StopGuideVoice();
             StopMetronome();
             StatusMessage = "Pausado.";
+            UpdateClockFields(GetPlaybackPositionSeconds());
+            return;
         }
 
-        UpdateClockFields(_audioEngine.CurrentPositionSeconds);
+        var startingFromBeginning = GetPlaybackPositionSeconds() <= 0.01;
+        RunWithOptionalPreCount(PreCountEnabled && startingFromBeginning, BeginTransportPlayback);
+    }
+
+    private void BeginTransportPlayback()
+    {
+        IsPlaying = true;
+        if (HasImportedAudio)
+        {
+            _audioEngine.Play();
+        }
+
+        SetVirtualClockRunning(true);
+        _activePlaybackSession = GetSessionAtPosition(GetPlaybackPositionSeconds());
+        StartMetronome(playFirstClick: MetronomeEnabled);
+        StatusMessage = HasImportedAudio ? "Tocando." : "Tocando (sem tracks).";
+        UpdateClockFields(GetPlaybackPositionSeconds());
     }
 
     [RelayCommand]
     private void Rewind()
     {
+        CancelCountIn();
         IsPlaying = false;
         _audioEngine.Pause();
         _audioEngine.SeekToStart();
+        ResetVirtualClock();
         _audioEngine.StopGuideVoice();
         StopMetronome();
         _lastGuideVoiceKey = null;
@@ -1213,8 +1264,10 @@ ActiveProjectTab.ProjectPath,
     [RelayCommand]
     private void EmergencyStop()
     {
+        CancelCountIn();
         IsPlaying = false;
         _audioEngine.Pause();
+        SetVirtualClockRunning(false);
         _audioEngine.StopGuideVoice();
         _audioEngine.StopPad();
         StopMetronome();
@@ -1291,6 +1344,7 @@ ActiveProjectTab.ProjectPath,
         NewSessionName = SessionNameOptions.First();
         NewSessionStartMeasure = SessionRegions.Count == 0 ? 1 : SessionRegions.Max(session => session.EndMeasure) + 1;
         NewSessionEndMeasure = NewSessionStartMeasure + 15;
+        NewSessionPreCountEnabled = PreCountEnabled;
         SelectedSessionCopySource = SessionCopyOptions.FirstOrDefault();
         IsAddSessionModalOpen = true;
     }
@@ -1315,6 +1369,7 @@ ActiveProjectTab.ProjectPath,
         NewSessionName = session.Name;
         NewSessionStartMeasure = session.StartMeasure;
         NewSessionEndMeasure = session.EndMeasure;
+        NewSessionPreCountEnabled = session.PreCountEnabled;
         SelectedSessionCopySource = SessionCopyOptions.FirstOrDefault();
         IsAddSessionModalOpen = true;
     }
@@ -1394,7 +1449,10 @@ ActiveProjectTab.ProjectPath,
         var start = SessionRegions.Count == 0 ? 1 : SessionRegions.Max(session => session.EndMeasure) + 1;
         var end = start + length - 1;
         var color = _sectionColors[SessionRegions.Count % _sectionColors.Length];
-        SessionRegions.Add(new SessionRegionViewModel(source.Name, start, end, color));
+        SessionRegions.Add(new SessionRegionViewModel(source.Name, start, end, color)
+        {
+            PreCountEnabled = source.PreCountEnabled
+        });
         StatusMessage = $"Sessão duplicada no fim: {source.Name}.";
         CloseSessionActionsModal();
         SaveActiveProjectTab();
@@ -1427,12 +1485,6 @@ ActiveProjectTab.ProjectPath,
     [RelayCommand]
     private void QueueOrStartSession(SessionRegionViewModel session)
     {
-        if (!HasImportedAudio)
-        {
-            StatusMessage = "Importe pelo menos uma track antes de iniciar uma sessão.";
-            return;
-        }
-
         if (ReferenceEquals(_queuedSession, session))
         {
             ClearQueuedSession();
@@ -1440,7 +1492,7 @@ ActiveProjectTab.ProjectPath,
             return;
         }
 
-        var currentSession = _activePlaybackSession ?? GetSessionAtPosition(_audioEngine.CurrentPositionSeconds);
+        var currentSession = _activePlaybackSession ?? GetSessionAtPosition(GetPlaybackPositionSeconds());
         if (IsPlaying && currentSession is not null && !ReferenceEquals(currentSession, session))
         {
             SetQueuedSession(session);
@@ -1533,6 +1585,7 @@ ActiveProjectTab.ProjectPath,
             _editingSession.Name = name;
             _editingSession.StartMeasure = start;
             _editingSession.EndMeasure = end;
+            _editingSession.PreCountEnabled = NewSessionPreCountEnabled;
             _editingSession = null;
             OnPropertyChanged(nameof(IsEditingSession));
             OnPropertyChanged(nameof(SessionModalTitle));
@@ -1541,7 +1594,10 @@ ActiveProjectTab.ProjectPath,
         else
         {
             var color = _sectionColors[SessionRegions.Count % _sectionColors.Length];
-            SessionRegions.Add(new SessionRegionViewModel(name, start, end, color));
+            SessionRegions.Add(new SessionRegionViewModel(name, start, end, color)
+            {
+                PreCountEnabled = NewSessionPreCountEnabled
+            });
         }
 
         IsAddSessionModalOpen = false;
@@ -1652,22 +1708,37 @@ ActiveProjectTab.ProjectPath,
 
     private void StartSessionNow(SessionRegionViewModel session, bool keepQueuedSession = false)
     {
-        var targetSeconds = GetMeasureStartSeconds(session.StartMeasure);
-        _audioEngine.Seek(targetSeconds);
-        _audioEngine.StopGuideVoice();
-        _lastGuideVoiceKey = null;
-        _activePlaybackSession = session;
-
         if (!keepQueuedSession)
         {
             ClearQueuedSession();
         }
 
-        if (!IsPlaying)
+        _activePlaybackSession = session;
+        CancelCountIn();
+
+        if (session.PreCountEnabled)
         {
-            IsPlaying = true;
-            _audioEngine.Play();
+            _audioEngine.Pause();
+            SetVirtualClockRunning(false);
+            _audioEngine.StopGuideVoice();
+            _lastGuideVoiceKey = null;
+            StopMetronome();
         }
+
+        RunWithOptionalPreCount(session.PreCountEnabled, () => BeginSessionPlayback(session));
+    }
+
+    private void BeginSessionPlayback(SessionRegionViewModel session)
+    {
+        var targetSeconds = GetMeasureStartSeconds(session.StartMeasure);
+        _audioEngine.Seek(targetSeconds);
+        SeekVirtualClock(targetSeconds);
+        _audioEngine.StopGuideVoice();
+        _lastGuideVoiceKey = null;
+
+        IsPlaying = true;
+        _audioEngine.Play();
+        SetVirtualClockRunning(true);
 
         if (MetronomeEnabled)
         {
@@ -1697,15 +1768,15 @@ ActiveProjectTab.ProjectPath,
 
     private void UpdateTransport()
     {
-        if (IsBusy)
+        if (IsBusy || IsCountingIn)
         {
             UpdatePerformanceUsage();
             return;
         }
 
-        var position = HasImportedAudio ? _audioEngine.CurrentPositionSeconds : 0;
+        var position = GetPlaybackPositionSeconds();
         UpdateScheduledSessionPlayback(position);
-        position = HasImportedAudio ? _audioEngine.CurrentPositionSeconds : 0;
+        position = GetPlaybackPositionSeconds();
         UpdateClockFields(position);
         UpdateTrackMeters();
         UpdateGuideVoice(position);
@@ -1715,6 +1786,7 @@ ActiveProjectTab.ProjectPath,
         {
             IsPlaying = false;
             _audioEngine.StopGuideVoice();
+            SetVirtualClockRunning(false);
             StopMetronome();
             _lastGuideVoiceKey = null;
             ClearQueuedSession();
@@ -1779,6 +1851,72 @@ ActiveProjectTab.ProjectPath,
     {
         var ratio = PlaybackBpm / (double)Math.Max(1, DetectedBpm);
         _audioEngine.SetTempo(ratio);
+        RebaseVirtualClockTempo();
+    }
+
+    /// <summary>
+    /// Tracks the transport position in real time when there is no imported audio to drive it,
+    /// so the timeline, metronome and sessions keep working for track-less projects.
+    /// </summary>
+    private double GetVirtualPositionSeconds()
+    {
+        return _virtualClock.IsRunning
+            ? _virtualPositionBaseSeconds + _virtualClock.Elapsed.TotalSeconds * _virtualClockRatio
+            : _virtualPositionBaseSeconds;
+    }
+
+    private void RebaseVirtualClockTempo()
+    {
+        var ratio = PlaybackBpm / Math.Max(1, DetectedBpm);
+        if (!_virtualClock.IsRunning)
+        {
+            _virtualClockRatio = ratio;
+            return;
+        }
+
+        _virtualPositionBaseSeconds = GetVirtualPositionSeconds();
+        _virtualClockRatio = ratio;
+        _virtualClock.Restart();
+    }
+
+    private void SeekVirtualClock(double positionSeconds)
+    {
+        _virtualPositionBaseSeconds = Math.Max(0, positionSeconds);
+        _virtualClockRatio = PlaybackBpm / Math.Max(1, DetectedBpm);
+        if (_virtualClock.IsRunning)
+        {
+            _virtualClock.Restart();
+        }
+    }
+
+    private void SetVirtualClockRunning(bool isRunning)
+    {
+        if (isRunning == _virtualClock.IsRunning)
+        {
+            return;
+        }
+
+        if (isRunning)
+        {
+            _virtualClockRatio = PlaybackBpm / Math.Max(1, DetectedBpm);
+            _virtualClock.Restart();
+        }
+        else
+        {
+            _virtualPositionBaseSeconds = GetVirtualPositionSeconds();
+            _virtualClock.Reset();
+        }
+    }
+
+    private void ResetVirtualClock()
+    {
+        _virtualClock.Reset();
+        _virtualPositionBaseSeconds = 0;
+    }
+
+    private double GetPlaybackPositionSeconds()
+    {
+        return HasImportedAudio ? _audioEngine.CurrentPositionSeconds : GetVirtualPositionSeconds();
     }
 
     private void ApplyPadState()
@@ -1799,6 +1937,11 @@ ActiveProjectTab.ProjectPath,
         StatusMessage = $"Pad ligado: {SelectedPadNote}.";
     }
 
+    /// <summary>
+    /// Announces a session's name a bit before its downbeat (one measure of lead time at the
+    /// current tempo), so the musician knows what's coming next instead of hearing it only
+    /// once the section has already started.
+    /// </summary>
     private void UpdateGuideVoice(double positionSeconds)
     {
         if (!IsPlaying || !GuideVoiceEnabled || SessionRegions.Count == 0)
@@ -1806,31 +1949,45 @@ ActiveProjectTab.ProjectPath,
             return;
         }
 
-        var measure = GetMeasureAtPosition(positionSeconds);
-        var session = SessionRegions
-            .OrderBy(region => region.StartMeasure)
-            .FirstOrDefault(region => measure >= region.StartMeasure && measure <= region.EndMeasure);
-        if (session is null)
+        var leadSeconds = GetGuideVoiceLeadSeconds();
+        var target = SessionRegions
+            .Select(region => new
+            {
+                Region = region,
+                AnnounceSeconds = Math.Max(0, GetMeasureStartSeconds(region.StartMeasure) - leadSeconds),
+                EndSeconds = GetMeasureStartSeconds(region.EndMeasure + 1)
+            })
+            .Where(item => positionSeconds >= item.AnnounceSeconds - 0.05 && positionSeconds < item.EndSeconds)
+            .OrderByDescending(item => item.AnnounceSeconds)
+            .Select(item => item.Region)
+            .FirstOrDefault();
+
+        if (target is null)
         {
             return;
         }
 
-        var guideKey = $"{session.StartMeasure}:{NormalizeGuideKey(session.Name)}";
+        var guideKey = $"{target.StartMeasure}:{NormalizeGuideKey(target.Name)}";
         if (string.Equals(_lastGuideVoiceKey, guideKey, StringComparison.Ordinal))
         {
             return;
         }
 
         _lastGuideVoiceKey = guideKey;
-        if (!TryGetGuideVoicePath(session.Name, out var guidePath))
+        if (!TryGetGuideVoicePath(target.Name, out var guidePath))
         {
             return;
         }
 
         if (!_audioEngine.PlayGuideVoice(guidePath))
         {
-            StatusMessage = _audioEngine.LastError ?? $"Não foi possível tocar a voz guia: {session.Name}.";
+            StatusMessage = _audioEngine.LastError ?? $"Não foi possível tocar a voz guia: {target.Name}.";
         }
+    }
+
+    private double GetGuideVoiceLeadSeconds()
+    {
+        return GetBeatsPerMeasure() * (60d / Math.Clamp(PlaybackBpm, 1, 300));
     }
 
     private bool TryGetGuideVoicePath(string sessionName, out string guidePath)
@@ -1860,13 +2017,22 @@ ActiveProjectTab.ProjectPath,
             AddGuideVoiceKey(stem, filePath);
             AddGuideVoiceKey(stem.Replace('_', '-'), filePath);
             AddGuideVoiceKey(stem.Replace('-', '_'), filePath);
-            names.Add(HumanizeGuideVoiceName(stem));
+            if (!IsCountInAudioStem(stem))
+            {
+                names.Add(HumanizeGuideVoiceName(stem));
+            }
         }
 
         foreach (var name in names)
         {
             SessionNameOptions.Add(name);
         }
+    }
+
+    /// <summary>1.mp3–4.mp3 are reserved for the spoken pre-count and shouldn't show up as session names.</summary>
+    private static bool IsCountInAudioStem(string stem)
+    {
+        return stem.Length == 1 && stem[0] is >= '1' and <= '4';
     }
 
     private void AddGuideVoiceKey(string key, string filePath)
@@ -2099,21 +2265,16 @@ ActiveProjectTab.ProjectPath,
     {
         var gridBeatLength = GetGridBeatLength();
         var stepsPerMeasure = Math.Max(1, (int)Math.Round(GetBeatsPerMeasure() / gridBeatLength));
+        _metronomeStepsPerMeasure = stepsPerMeasure;
         var intervalSeconds = GetBeatIntervalSeconds();
-        if (!HasImportedAudio)
-        {
-            _metronomeScheduler.Start(intervalSeconds, stepsPerMeasure, 0, 0, playFirstClick);
-            return;
-        }
-
-        var positionSeconds = _audioEngine.CurrentPositionSeconds;
+        var positionSeconds = GetPlaybackPositionSeconds();
         var sourceStepSeconds = 60d / Math.Max(1, DetectedBpm) * gridBeatLength;
         var tempoRatio = PlaybackBpm / Math.Max(1, DetectedBpm);
         var relativeSeconds = positionSeconds - BeatGridOffsetSeconds;
         if (relativeSeconds < -0.001)
         {
             var delay = -relativeSeconds / Math.Max(0.01, tempoRatio);
-            _metronomeScheduler.Start(intervalSeconds, stepsPerMeasure, 0, delay, playImmediately: false);
+            _metronomeScheduler.Start(intervalSeconds, 0, delay, playImmediately: false);
             return;
         }
 
@@ -2124,7 +2285,6 @@ ActiveProjectTab.ProjectPath,
         {
             _metronomeScheduler.Start(
                 intervalSeconds,
-                stepsPerMeasure,
                 (int)nearestStep,
                 0,
                 playImmediately: true);
@@ -2136,7 +2296,6 @@ ActiveProjectTab.ProjectPath,
         var playbackDelay = sourceDelay / Math.Max(0.01, tempoRatio);
         _metronomeScheduler.Start(
             intervalSeconds,
-            stepsPerMeasure,
             nextStep,
             playbackDelay,
             playImmediately: false);
@@ -2155,6 +2314,91 @@ ActiveProjectTab.ProjectPath,
         }
 
         StartMetronome(playFirstClick: false);
+    }
+
+    private void OnMetronomeSchedulerBeat(int beatIndex)
+    {
+        var stepsPerMeasure = Math.Max(1, _metronomeStepsPerMeasure);
+        var beatInMeasure = beatIndex % stepsPerMeasure;
+        _audioEngine.PlayMetronomeClick(isAccent: beatInMeasure == 0);
+
+        if (IsCountingIn)
+        {
+            PlayCountInVoice(beatInMeasure + 1);
+        }
+    }
+
+    private void PlayCountInVoice(int count)
+    {
+        if (_guideVoiceFiles.Count == 0)
+        {
+            RefreshGuideVoiceFiles();
+        }
+
+        if (_guideVoiceFiles.TryGetValue(count.ToString(CultureInfo.InvariantCulture), out var path))
+        {
+            _audioEngine.PlayGuideVoice(path);
+        }
+    }
+
+    /// <summary>
+    /// Plays a click + spoken count-in ("1, 2, 3, 4") of <see cref="PreCountMeasures"/> bars before
+    /// invoking <paramref name="startAction"/>, so the actual transport/session start lands right on beat 1.
+    /// </summary>
+    private void RunWithOptionalPreCount(bool applyPreCount, Action startAction)
+    {
+        CancelCountIn();
+
+        if (!applyPreCount)
+        {
+            startAction();
+            return;
+        }
+
+        var measures = Math.Max(1, PreCountMeasures);
+        var beatsPerMeasure = GetBeatsPerMeasure();
+        var beatIntervalSeconds = 60d / Math.Clamp(PlaybackBpm, 1, 300);
+        var totalSeconds = measures * beatsPerMeasure * beatIntervalSeconds;
+
+        _metronomeStepsPerMeasure = beatsPerMeasure;
+        IsCountingIn = true;
+        StatusMessage = $"Pré-contagem: {measures} compasso(s)...";
+        _metronomeScheduler.Start(beatIntervalSeconds, 0, 0, playImmediately: true);
+
+        var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(totalSeconds) };
+        _countInTimer = timer;
+        timer.Tick += OnCountInComplete;
+        timer.Start();
+        return;
+
+        void OnCountInComplete(object? sender, EventArgs e)
+        {
+            timer.Tick -= OnCountInComplete;
+            timer.Stop();
+            if (ReferenceEquals(_countInTimer, timer))
+            {
+                _countInTimer = null;
+            }
+
+            IsCountingIn = false;
+            _metronomeScheduler.Stop();
+            startAction();
+        }
+    }
+
+    private void CancelCountIn()
+    {
+        if (_countInTimer is not null)
+        {
+            _countInTimer.Stop();
+            _countInTimer = null;
+        }
+
+        if (IsCountingIn)
+        {
+            IsCountingIn = false;
+            _metronomeScheduler.Stop();
+        }
     }
 
     private int GetMeasureAtPosition(double positionSeconds)
@@ -2225,6 +2469,8 @@ ActiveProjectTab.ProjectPath,
             GuideVoiceEnabled = GuideVoiceEnabled,
             GuideVoiceVolume = GuideVoiceVolume,
             GuideVoicePan = GuideVoicePan,
+            PreCountEnabled = PreCountEnabled,
+            PreCountMeasures = PreCountMeasures,
             PadContinuousEnabled = PadContinuousEnabled,
             SelectedPadNote = SelectedPadNote,
             AudioOutputDeviceId = SelectedAudioOutputDevice?.Id ?? -1,
@@ -2255,7 +2501,8 @@ ActiveProjectTab.ProjectPath,
                     StartMeasure = session.StartMeasure,
                     EndMeasure = session.EndMeasure,
                     Color = session.Color,
-                    IsLooping = session.IsLooping
+                    IsLooping = session.IsLooping,
+                    PreCountEnabled = session.PreCountEnabled
                 })
                 .ToList()
         };
@@ -2493,6 +2740,8 @@ ActiveProjectTab.ProjectPath,
         _disposed = true;
         _operationCancellation?.Cancel();
         _operationCancellation?.Dispose();
+        _countInTimer?.Stop();
+        _countInTimer = null;
         _meterTimer.Stop();
         _metronomeScheduler.Dispose();
         _recoveryTimer.Stop();

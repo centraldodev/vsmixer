@@ -4,19 +4,22 @@ namespace VSMixer.Services;
 
 public sealed class MetronomeScheduler : IDisposable
 {
-    private readonly Action<bool> _playClick;
+    private readonly Action<int> _onBeat;
     private readonly object _syncRoot = new();
     private CancellationTokenSource? _cancellation;
     private bool _disposed;
 
-    public MetronomeScheduler(Action<bool> playClick)
+    /// <summary>
+    /// Notifies with the running beat index (relative to the scheduling start); callers
+    /// derive accents or spoken count numbers from it via their own steps-per-measure.
+    /// </summary>
+    public MetronomeScheduler(Action<int> onBeat)
     {
-        _playClick = playClick;
+        _onBeat = onBeat;
     }
 
     public void Start(
         double intervalSeconds,
-        int stepsPerMeasure,
         int firstBeatIndex,
         double initialDelaySeconds,
         bool playImmediately)
@@ -33,13 +36,12 @@ public sealed class MetronomeScheduler : IDisposable
         var nextBeatIndex = Math.Max(0, firstBeatIndex);
         if (playImmediately)
         {
-            _playClick(nextBeatIndex % Math.Max(1, stepsPerMeasure) == 0);
+            _onBeat(nextBeatIndex);
             nextBeatIndex++;
         }
 
         _ = RunAsync(
             Math.Max(0.01, intervalSeconds),
-            Math.Max(1, stepsPerMeasure),
             nextBeatIndex,
             playImmediately ? Math.Max(0.01, intervalSeconds) : Math.Max(0, initialDelaySeconds),
             cancellation.Token);
@@ -60,7 +62,6 @@ public sealed class MetronomeScheduler : IDisposable
 
     private async Task RunAsync(
         double intervalSeconds,
-        int stepsPerMeasure,
         int beatIndex,
         double initialDelaySeconds,
         CancellationToken cancellationToken)
@@ -78,7 +79,7 @@ public sealed class MetronomeScheduler : IDisposable
                     continue;
                 }
 
-                _playClick(beatIndex % stepsPerMeasure == 0);
+                _onBeat(beatIndex);
                 beatIndex++;
                 nextBeatSeconds += intervalSeconds;
             }

@@ -404,7 +404,7 @@
         </Border>
 
         <Border Grid.Row="1" Background="#070c14" BorderBrush="#182233" BorderThickness="0,0,0,1">
-            <Grid ColumnDefinitions="48,34,Auto,Auto,Auto,*,Auto,Auto,Auto,Auto,Auto,Auto,Auto" Margin="10,8" ColumnSpacing="10">
+            <Grid ColumnDefinitions="48,34,Auto,Auto,Auto,*,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" Margin="10,8" ColumnSpacing="10">
                 <Grid Grid.Column="0">
                     <Button Classes="transport-play" Command="{Binding TogglePlaybackCommand}" ToolTip.Tip="Play/Pausa (Espaço)" AutomationProperties.Name="Play ou pausa" IsVisible="{Binding IsNotMidiMappingEditMode}">
                         <Grid Width="18" Height="18" HorizontalAlignment="Center" VerticalAlignment="Center">
@@ -521,6 +521,27 @@
                             <Path Classes="icon" Data="{StaticResource IconPad}" Fill="#dbe7f5" Width="18" Height="18" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </ToggleButton>
                         <ComboBox Grid.Column="1" Classes="top-control" ItemsSource="{Binding PadNotes}" SelectedItem="{Binding SelectedPadNote}" Width="78"/>
+                    </Grid>
+                </Border>
+                <Border Grid.Column="13" Classes="stat-pill" Padding="3" VerticalAlignment="Center">
+                    <Grid ColumnDefinitions="28,24" ColumnSpacing="4">
+                        <ToggleButton Classes="icon-button" IsChecked="{Binding PreCountEnabled}" ToolTip.Tip="Pré-contagem ao iniciar do começo">
+                            <TextBlock Text="PRÉ" FontSize="8" FontWeight="Bold" Foreground="#dbe7f5" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </ToggleButton>
+                        <Button Grid.Column="1" Classes="mini" ToolTip.Tip="Compassos de pré-contagem">
+                            <Path Classes="icon" Data="{StaticResource IconChevronDown}" Stroke="#8fa8c3" StrokeThickness="1.8" Width="10" Height="10" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            <Button.Flyout>
+                                <Flyout>
+                                    <Border Width="220" Background="#101823" BorderBrush="#2e4056" BorderThickness="1" CornerRadius="12" Padding="12">
+                                        <StackPanel Spacing="8">
+                                            <TextBlock Text="Compassos de pré-contagem" Foreground="#91a7bf" FontWeight="Bold" FontSize="11"/>
+                                            <NumericUpDown Minimum="1" Maximum="4" Value="{Binding PreCountMeasures}"/>
+                                            <TextBlock Text="Toca antes de iniciar do compasso 1 e das sessões com pré-contagem marcada." Foreground="#6f88a3" FontSize="10" TextWrapping="Wrap"/>
+                                        </StackPanel>
+                                    </Border>
+                                </Flyout>
+                            </Button.Flyout>
+                        </Button>
                     </Grid>
                 </Border>
             </Grid>
@@ -643,6 +664,7 @@
                             <NumericUpDown Minimum="1" Maximum="999" Value="{Binding NewSessionEndMeasure}"/>
                         </StackPanel>
                     </Grid>
+                    <CheckBox Content="Usar pré-contagem ao iniciar esta sessão" IsChecked="{Binding NewSessionPreCountEnabled}" Foreground="#d8e6f6"/>
                     <Border Background="#0c141f" BorderBrush="#213048" BorderThickness="1" CornerRadius="10" Padding="12">
                         <StackPanel Spacing="7">
                             <TextBlock Text="Copiar tamanho de sessão" Foreground="#91a7bf" FontWeight="Bold" FontSize="11"/>

@@ -29,4 +29,7 @@ public partial class SessionRegionViewModel : ViewModelBase
 
     [ObservableProperty]
     private bool _isLooping;
+
+    [ObservableProperty]
+    private bool _preCountEnabled;
 }
